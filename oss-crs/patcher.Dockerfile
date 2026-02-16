@@ -1,0 +1,25 @@
+# =============================================================================
+# atlantis-codex Patcher Module
+# =============================================================================
+# RUN phase: Receives POVs, generates patches using Codex,
+# tests them using the snapshot image for incremental rebuilds.
+#
+# Uses host Docker socket (mounted by framework) to access snapshot images.
+# =============================================================================
+
+# These ARGs are required by the oss-crs framework template
+ARG target_base_image
+ARG crs_version
+
+FROM codex-base
+
+# Install libCRS
+COPY --from=libcrs . /libCRS
+RUN /libCRS/install.sh
+
+COPY agents/ /usr/local/lib/agents/
+COPY bin/run_patcher /usr/local/bin/run_patcher
+
+ENV PYTHONPATH=/usr/local/lib
+
+CMD ["run_patcher"]
