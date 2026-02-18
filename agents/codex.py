@@ -90,7 +90,7 @@ def setup(source_dir: Path, config: dict) -> None:
 
     # Global gitignore so runtime instructions never leak into patches.
     global_gitignore = Path.home() / ".gitignore"
-    global_gitignore.write_text("AGENTS.md\nCLAUDE.md\n")
+    global_gitignore.write_text("AGENTS.md\n")
     subprocess.run(
         ["git", "config", "--global", "core.excludesFile", str(global_gitignore)],
         capture_output=True,

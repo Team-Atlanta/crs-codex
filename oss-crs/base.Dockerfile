@@ -34,8 +34,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Codex CLI
-RUN npm install -g @openai/codex@latest
+# Codex CLI (pinned to avoid breaking config schema changes)
+RUN npm install -g @openai/codex@0.104.0
 
 # Git config
 RUN git config --global user.email "crs@oss-crs.dev" \
