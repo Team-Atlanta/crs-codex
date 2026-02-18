@@ -105,9 +105,11 @@ def run(
     harness: str,
     patches_dir: Path,
     work_dir: Path,
+    *,
     language: str = "c",
     sanitizer: str = "address",
     builder: str,
+    ref_diff: str | None = None,
 ) -> bool:
     """Launch Codex in agentic mode to autonomously fix the vulnerability.
 
@@ -134,6 +136,16 @@ def run(
 
     pov_list = "\n".join(pov_sections)
 
+    # Build optional diff section for delta mode
+    if ref_diff:
+        diff_section = (
+            "\n## Reference Diff (Delta Mode)\n\n"
+            "This diff shows the code change that introduced the vulnerability:\n\n"
+            f"```diff\n{ref_diff}\n```\n"
+        )
+    else:
+        diff_section = ""
+
     # Write AGENTS.md with concrete paths for all POVs.
     agents_md = AGENTS_MD_TEMPLATE.format(
         language=language,
@@ -144,6 +156,7 @@ def run(
         pov_list=pov_list,
         pov_count=len(povs),
         builder=builder,
+        diff_section=diff_section,
     )
     (source_dir / "AGENTS.md").write_text(agents_md)
 
@@ -185,9 +198,12 @@ def run(
                 logger.info("Codex exit code: %d", proc.returncode)
             except subprocess.TimeoutExpired:
                 logger.warning("Codex timed out (%ds), killing process tree", AGENT_TIMEOUT)
-                os.killpg(proc.pid, signal.SIGTERM)
-                time.sleep(2)
-                os.killpg(proc.pid, signal.SIGKILL)
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    time.sleep(2)
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 proc.wait()
     except Exception as e:
         logger.error("Error running Codex: %s", e)

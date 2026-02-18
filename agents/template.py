@@ -23,9 +23,11 @@ def run(
     harness: str,
     patches_dir: Path,
     work_dir: Path,
+    *,
     language: str = "c",
     sanitizer: str = "address",
     builder: str,
+    ref_diff: str | None = None,
 ) -> bool:
     """Run the agent autonomously.
 

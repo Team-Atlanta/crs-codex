@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 crs-codex patcher module.
 
@@ -51,6 +50,7 @@ MAX_CRASH_LOG_CHARS = 16384
 WORK_DIR = Path("/work")
 PATCHES_DIR = Path("/patches")
 POV_DIR = WORK_DIR / "povs"
+DIFF_DIR = WORK_DIR / "diffs"
 
 
 # --- Common infrastructure ---
@@ -107,7 +107,7 @@ def wait_for_builder(timeout: int = 300) -> bool:
     """
     result = subprocess.run(
         ["libCRS", "get-service-domain", BUILDER_MODULE],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
         logger.error("Failed to resolve builder domain for '%s': %s",
@@ -178,7 +178,8 @@ def load_agent(agent_name: str):
         sys.exit(1)
 
 
-def process_povs(pov_paths: list[Path], source_dir: Path, agent) -> bool:
+def process_povs(pov_paths: list[Path], source_dir: Path, agent,
+                  ref_diff: str | None = None) -> bool:
     """Process a batch of POV variants in a single agent session.
 
     All POVs are assumed to be variants of the same vulnerability.
@@ -200,7 +201,8 @@ def process_povs(pov_paths: list[Path], source_dir: Path, agent) -> bool:
     agent_work_dir.mkdir(parents=True, exist_ok=True)
 
     agent.run(source_dir, povs, HARNESS, PATCHES_DIR, agent_work_dir,
-              language=LANGUAGE, sanitizer=SANITIZER, builder=BUILDER_MODULE)
+              language=LANGUAGE, sanitizer=SANITIZER, builder=BUILDER_MODULE,
+              ref_diff=ref_diff)
 
     _reset_source(source_dir)
 
@@ -264,11 +266,31 @@ def main():
         sys.exit(1)
     logger.info("POV fetch directory registered at %s", POV_DIR)
 
+    # Register diff fetch directory for delta mode (FETCH_DIR/diff/).
+    result = subprocess.run(
+        ["libCRS", "register-fetch-dir", "diff", str(DIFF_DIR)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        logger.warning("register-fetch-dir diff failed (rc=%d) — delta mode diffs unavailable", result.returncode)
+    else:
+        for _ in range(50):
+            if DIFF_DIR.exists():
+                break
+            time.sleep(0.1)
+        else:
+            logger.warning("DIFF_DIR %s not created after register-fetch-dir — delta mode diffs unavailable", DIFF_DIR)
+        if DIFF_DIR.exists():
+            logger.info("Diff fetch directory registered at %s", DIFF_DIR)
+
     # Register Codex home (including logs) as shared dir for post-run analysis.
+    # register-shared-dir creates a symlink, so the path must not exist beforehand.
     codex_home = Path.home() / ".codex"
-    if codex_home.exists() and not codex_home.is_symlink():
+    if codex_home.is_symlink():
+        codex_home.unlink()
+    elif codex_home.exists():
         shutil.rmtree(codex_home)
-    codex_home.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         ["libCRS", "register-shared-dir", str(codex_home), "codex-home"],
         capture_output=True, text=True,
@@ -304,11 +326,18 @@ def main():
 
     logger.info("Found %d POV(s): %s", len(pov_files), [p.name for p in pov_files])
 
+    # Read reference diff if available (delta mode).
+    ref_diff = None
+    ref_diff_path = DIFF_DIR / "ref.diff"
+    if DIFF_DIR.exists() and ref_diff_path.is_file():
+        ref_diff = ref_diff_path.read_text()
+        logger.info("Reference diff found (%d chars)", len(ref_diff))
+
     if not wait_for_builder():
         logger.error("Cannot proceed without builder sidecar")
         sys.exit(1)
 
-    if process_povs(pov_files, source_dir, agent):
+    if process_povs(pov_files, source_dir, agent, ref_diff=ref_diff):
         # Wait for the submission daemon to flush (batch_time=10s) before exiting.
         logger.info("Patch submitted. Waiting for daemon to flush...")
         time.sleep(30)

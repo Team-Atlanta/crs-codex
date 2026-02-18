@@ -20,13 +20,14 @@ POV files -> reproduce crashes -> Codex agent -> .diff patch
 ## Project structure
 
 ```
-bin/
-  run_patcher
-  compile_target
+pyproject.toml          # Package definition (uv/pip installable)
+patcher.py              # Patcher entry point (run_patcher console script)
 agents/
   codex.py
   codex.md
   template.py
+bin/
+  compile_target
 oss-crs/
   crs.yaml
   example-compose.yaml
