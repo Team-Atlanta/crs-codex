@@ -39,7 +39,7 @@ SANITIZER = os.environ.get("SANITIZER", "address")
 LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
 LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
 
-# Builder sidecar module name (must match a use_snapshot module in crs.yaml)
+# Builder sidecar module name (must match a run_snapshot module in crs.yaml)
 BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
 
 # Agent selection
@@ -201,7 +201,7 @@ def main():
 
     if not SNAPSHOT_IMAGE:
         logger.error("OSS_CRS_SNAPSHOT_IMAGE is not set.")
-        logger.error("Declare snapshot: true in target_build_phase and use_snapshot: true in crs_run_phase (crs.yaml).")
+        logger.error("Declare snapshot: true in target_build_phase and run_snapshot: true in crs_run_phase (crs.yaml).")
         sys.exit(1)
 
     global crs

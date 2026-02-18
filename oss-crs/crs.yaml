@@ -27,9 +27,9 @@ crs_run_phase:
       CRS_AGENT: codex
       # CODEX_MODEL: gpt-5.2-codex  # Optional override (default if unset)
       # AGENT_TIMEOUT: "0"  # seconds, 0 = no limit (default)
-      # BUILDER_MODULE: "inc-builder-asan"  # Builder sidecar module (must match use_snapshot module name)
+      # BUILDER_MODULE: "inc-builder-asan"  # Builder sidecar module (must match run_snapshot module name)
   inc-builder-asan:
-    use_snapshot: true
+    run_snapshot: true
     dockerfile: oss-crs-infra:default-builder
 
 supported_target:

@@ -13,7 +13,7 @@ oss_crs_infra:
   memory: "8G"
 
 # --- CRS (crs-codex) ---------------------------------------------------
-# Builder sidecar is declared in crs.yaml (inc-builder-asan with use_snapshot: true).
+# Builder sidecar is declared in crs.yaml (inc-builder-asan with run_snapshot: true).
 # No separate oss-crs-builder compose entry needed.
 crs-codex:
   source:

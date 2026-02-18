@@ -44,7 +44,7 @@ oss-crs/
 
 - **[oss-crs](https://github.com/oss-crs/oss-crs)** — the CRS framework (`crs-compose` CLI)
 
-Builder sidecars for incremental builds are declared in `oss-crs/crs.yaml` (`snapshot: true` / `use_snapshot: true`) and handled automatically by the framework — no separate builder setup is needed.
+Builder sidecars for incremental builds are declared in `oss-crs/crs.yaml` (`snapshot: true` / `run_snapshot: true`) and handled automatically by the framework — no separate builder setup is needed.
 
 ## Quick start
 
@@ -84,7 +84,7 @@ crs-compose up -f crs-compose.yaml
 | `CRS_AGENT` | `codex` | Agent module name (maps to `agents/<name>.py`) |
 | `CODEX_MODEL` | `gpt-5.2-codex` | Model passed to `codex exec --model` |
 | `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
-| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `use_snapshot` entry in crs.yaml) |
+| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
 
 Available models:
 - `gpt-5-2025-08-07`
