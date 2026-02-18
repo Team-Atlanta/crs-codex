@@ -107,6 +107,7 @@ def run(
     work_dir: Path,
     language: str = "c",
     sanitizer: str = "address",
+    builder: str,
 ) -> bool:
     """Launch Codex in agentic mode to autonomously fix the vulnerability.
 
@@ -121,16 +122,14 @@ def run(
 
     # Write each crash log to a file and build POV sections for AGENTS.md
     pov_sections = []
-    crash_log_paths = []
     for i, (pov_path, crash_log) in enumerate(povs):
         crash_log_path = work_dir / f"crash_log_{i}.txt"
         crash_log_path.write_text(crash_log)
-        crash_log_paths.append(crash_log_path)
         logger.info("Wrote crash log to %s", crash_log_path)
 
         pov_sections.append(
             f"- POV: `{pov_path}` — crash log: `{crash_log_path}`\n"
-            f"  Test: `libCRS run-pov {pov_path} <response_dir> --harness {harness} --build-id <build_id>`"
+            f"  Test: `libCRS run-pov {pov_path} <response_dir> --harness {harness} --build-id <build_id> --builder {builder}`"
         )
 
     pov_list = "\n".join(pov_sections)
@@ -144,6 +143,7 @@ def run(
         patches_dir=patches_dir,
         pov_list=pov_list,
         pov_count=len(povs),
+        builder=builder,
     )
     (source_dir / "AGENTS.md").write_text(agents_md)
 

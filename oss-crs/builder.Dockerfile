@@ -1,5 +1,5 @@
 # =============================================================================
-# atlantis-codex Builder Dockerfile
+# crs-codex Builder Dockerfile
 # =============================================================================
 # BUILD phase: Compiles the target project and submits build outputs.
 # =============================================================================

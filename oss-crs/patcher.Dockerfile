@@ -1,5 +1,5 @@
 # =============================================================================
-# atlantis-codex Patcher Module
+# crs-codex Patcher Module
 # =============================================================================
 # RUN phase: Receives POVs, generates patches using Codex,
 # tests them using the snapshot image for incremental rebuilds.

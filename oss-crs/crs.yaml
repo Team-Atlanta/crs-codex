@@ -1,8 +1,8 @@
-name: atlantis-codex
+name: crs-codex
 type:
   - bug-fixing
 version: 1.0.0
-docker_registry: ghcr.io/team-atlanta/atlantis-codex
+docker_registry: ghcr.io/team-atlanta/crs-codex
 
 prepare_phase:
   hcl: oss-crs/docker-bake.hcl
@@ -13,6 +13,11 @@ target_build_phase:
     outputs:
       - build
       - src
+  - name: inc-builder-asan
+    snapshot: true
+    dockerfile: oss-crs-infra:default-builder
+    additional_env:
+      SANITIZER: address
 
 crs_run_phase:
   patcher:
@@ -22,6 +27,10 @@ crs_run_phase:
       CRS_AGENT: codex
       # CODEX_MODEL: gpt-5.2-codex  # Optional override (default if unset)
       # AGENT_TIMEOUT: "0"  # seconds, 0 = no limit (default)
+      # BUILDER_MODULE: "inc-builder-asan"  # Builder sidecar module (must match use_snapshot module name)
+  inc-builder-asan:
+    use_snapshot: true
+    dockerfile: oss-crs-infra:default-builder
 
 supported_target:
   mode:

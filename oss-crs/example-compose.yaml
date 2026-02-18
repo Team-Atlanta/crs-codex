@@ -1,6 +1,6 @@
 ##############################################################################
 #                        CRS Compose Configuration                           #
-#          Example for atlantis-codex with builder CRS                      #
+#          Example for crs-codex (builder sidecar via crs.yaml)        #
 ##############################################################################
 
 # --- General Settings -------------------------------------------------------
@@ -12,18 +12,13 @@ oss_crs_infra:
   cpuset: "0-1"
   memory: "8G"
 
-# --- Builder CRS (snapshot-based incremental builds) -----------------------
-oss-crs-builder:
-  source:
-    local_path: /path/to/oss-crs/builder           # UPDATE: path to oss-crs/builder
-  cpuset: "2-3"                                     # UPDATE: available CPU cores
-  memory: "8G"                                      # UPDATE: available memory
-
-# --- CRS (atlantis-codex) ---------------------------------------------------
-atlantis-codex:
+# --- CRS (crs-codex) ---------------------------------------------------
+# Builder sidecar is declared in crs.yaml (inc-builder-asan with use_snapshot: true).
+# No separate oss-crs-builder compose entry needed.
+crs-codex:
   source:
     local_path: /path/to/crs-codex                  # UPDATE: local filesystem path
-  cpuset: "4-7"                                     # UPDATE: available CPU cores
+  cpuset: "2-7"                                     # UPDATE: available CPU cores
   memory: "16G"                                     # UPDATE: available memory
   llm_budget: 10                                    # LLM budget in USD
   additional_env:

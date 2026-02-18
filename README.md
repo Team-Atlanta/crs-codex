@@ -1,4 +1,4 @@
-# atlantis-codex
+# crs-codex
 
 A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Codex CLI](https://developers.openai.com/codex/overview) to autonomously find and patch vulnerabilities in open-source projects.
 
@@ -40,7 +40,7 @@ oss-crs/
 ## Prerequisites
 
 - [oss-crs](https://github.com/oss-crs/oss-crs) (`crs-compose`)
-- [oss-crs-builder](https://github.com/oss-crs/builder) (builder sidecar)
+  - Builder sidecar is declared in `crs.yaml` and managed by the framework (`oss-crs-infra:default-builder`)
 
 ## Runtime behavior (Codex-specific)
 
@@ -81,7 +81,7 @@ If `OSS_CRS_LLM_API_URL/KEY` are absent, Codex falls back to its default provide
 Copy `oss-crs/example-compose.yaml` and update paths:
 
 ```yaml
-atlantis-codex:
+crs-codex:
   source:
     local_path: /path/to/crs-codex
   cpuset: "2-7"
@@ -112,6 +112,7 @@ crs-compose up -f crs-compose.yaml
 | `CRS_AGENT` | `codex` | Agent module name (`agents/<name>.py`) |
 | `CODEX_MODEL` | `gpt-5.2-codex` | Model passed to `codex exec --model` |
 | `AGENT_TIMEOUT` | `0` | Timeout seconds (`0` = no limit) |
+| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `use_snapshot` module in `crs.yaml`) |
 
 ## Patch validity
 
@@ -136,7 +137,7 @@ The agent receives:
 - `language`: target language
 - `sanitizer`: sanitizer type
 
-Available libCRS commands:
-- `libCRS apply-patch-build <patch.diff> <response_dir>`
-- `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id>`
-- `libCRS run-test <response_dir> --build-id <id>`
+Available libCRS commands (the `--builder` flag specifies the builder sidecar module):
+- `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>`
+- `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id> --builder <module>`
+- `libCRS run-test <response_dir> --build-id <id> --builder <module>`

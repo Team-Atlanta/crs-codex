@@ -1,5 +1,5 @@
 # =============================================================================
-# atlantis-codex Docker Bake Configuration
+# crs-codex Docker Bake Configuration
 # =============================================================================
 #
 # Builds the CRS base image with Codex CLI and Python dependencies.

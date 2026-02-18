@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-atlantis-codex patcher module.
+crs-codex patcher module.
 
 Thin launcher that delegates vulnerability fixing to a swappable AI agent.
 The agent (selected via CRS_AGENT env var) handles: bug analysis, code editing,
@@ -38,7 +38,8 @@ SANITIZER = os.environ.get("SANITIZER", "address")
 LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
 LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
 
-BUILDER_URL = os.environ.get("OSS_CRS_BUILDER_URL", "")
+# Builder sidecar module name (must match a use_snapshot module in crs.yaml)
+BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
 
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
@@ -47,9 +48,9 @@ CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
 MAX_CRASH_LOG_CHARS = 16384
 
 # Framework directories
-FETCH_DIR = Path("/OSS_CRS_FETCH_DIR")
 WORK_DIR = Path("/work")
 PATCHES_DIR = Path("/patches")
+POV_DIR = WORK_DIR / "povs"
 
 
 # --- Common infrastructure ---
@@ -99,25 +100,35 @@ def setup_source() -> Path | None:
 
 
 def wait_for_builder(timeout: int = 300) -> bool:
-    """Block until the builder sidecar is healthy (safety net for startup races)."""
-    if not BUILDER_URL:
-        logger.warning("OSS_CRS_BUILDER_URL not set, skipping health check")
-        return True
+    """Block until the builder sidecar is healthy (safety net for startup races).
 
-    health_url = f"{BUILDER_URL}/health"
-    logger.info("Waiting for builder sidecar at %s ...", health_url)
+    Resolves the builder module domain via ``libCRS get-service-domain`` and
+    polls the ``/health`` endpoint.
+    """
+    result = subprocess.run(
+        ["libCRS", "get-service-domain", BUILDER_MODULE],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logger.error("Failed to resolve builder domain for '%s': %s",
+                      BUILDER_MODULE, result.stderr)
+        return False
+
+    domain = result.stdout.strip()
+    health_url = f"http://{domain}:8080/health"
+    logger.info("Waiting for builder sidecar '%s' at %s ...", BUILDER_MODULE, health_url)
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         try:
             with urllib.request.urlopen(health_url, timeout=5) as resp:
                 if resp.status == 200:
-                    logger.info("Builder sidecar is healthy")
+                    logger.info("Builder sidecar '%s' is healthy", BUILDER_MODULE)
                     return True
         except (urllib.error.URLError, OSError):
             pass
         time.sleep(5)
 
-    logger.error("Builder sidecar not healthy after %ds", timeout)
+    logger.error("Builder sidecar '%s' not healthy after %ds", BUILDER_MODULE, timeout)
     return False
 
 
@@ -134,6 +145,7 @@ def reproduce_crash(pov_path: Path) -> str:
         str(pov_path), str(response_dir),
         "--harness", HARNESS,
         "--build-id", "base",
+        "--builder", BUILDER_MODULE,
     ]
 
     try:
@@ -188,7 +200,7 @@ def process_povs(pov_paths: list[Path], source_dir: Path, agent) -> bool:
     agent_work_dir.mkdir(parents=True, exist_ok=True)
 
     agent.run(source_dir, povs, HARNESS, PATCHES_DIR, agent_work_dir,
-              language=LANGUAGE, sanitizer=SANITIZER)
+              language=LANGUAGE, sanitizer=SANITIZER, builder=BUILDER_MODULE)
 
     _reset_source(source_dir)
 
@@ -212,7 +224,7 @@ def main():
 
     if not SNAPSHOT_IMAGE:
         logger.error("OSS_CRS_SNAPSHOT_IMAGE is not set.")
-        logger.error("Set 'incremental_build: true' in crs-compose.yaml.")
+        logger.error("Declare snapshot: true in target_build_phase and use_snapshot: true in crs_run_phase (crs.yaml).")
         sys.exit(1)
 
     # Register patch submission directory with libCRS.
@@ -229,6 +241,28 @@ def main():
         logger.error("register-submit-dir failed (rc=%d)", result.returncode)
         sys.exit(1)
     logger.info("Patch submission watcher started (log=%s)", submit_log)
+
+    # Register POV fetch directory with libCRS (symlink POV_DIR → FETCH_DIR/pov/).
+    fetch_log = WORK_DIR / "register-fetch-dir.log"
+    fetch_log.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["libCRS", "register-fetch-dir", "--log", str(fetch_log),
+         "pov", str(POV_DIR)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        logger.error("register-fetch-dir failed (rc=%d)", result.returncode)
+        sys.exit(1)
+    # Wait for daemon child to create the symlink.
+    for _ in range(50):
+        if POV_DIR.exists():
+            break
+        time.sleep(0.1)
+    else:
+        logger.error("POV_DIR %s not created after register-fetch-dir", POV_DIR)
+        sys.exit(1)
+    logger.info("POV fetch directory registered at %s", POV_DIR)
 
     # Register Codex home (including logs) as shared dir for post-run analysis.
     codex_home = Path.home() / ".codex"
@@ -260,16 +294,12 @@ def main():
         "codex_home": str(codex_home),
     })
 
-    if not FETCH_DIR.exists():
-        logger.error("FETCH_DIR %s does not exist. Is the volume mounted?", FETCH_DIR)
-        sys.exit(1)
-
-    # All POVs are present before container starts (FETCH_DIR is read-only).
+    # All POVs are present before container starts (POV_DIR → FETCH_DIR/pov/).
     # Scan once, batch all variants into a single agent session.
-    pov_files = sorted(f for f in FETCH_DIR.rglob("*") if f.is_file() and not f.name.startswith("."))
+    pov_files = sorted(f for f in POV_DIR.rglob("*") if f.is_file() and not f.name.startswith("."))
 
     if not pov_files:
-        logger.warning("No POV files found in %s", FETCH_DIR)
+        logger.warning("No POV files found in %s", POV_DIR)
         sys.exit(0)
 
     logger.info("Found %d POV(s): %s", len(pov_files), [p.name for p in pov_files])
