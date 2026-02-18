@@ -13,14 +13,15 @@ ARG crs_version
 
 FROM codex-base
 
-# Install libCRS
+# Install libCRS (CLI + Python package)
 COPY --from=libcrs . /libCRS
-RUN /libCRS/install.sh
+RUN pip3 install /libCRS \
+    && python3 -c "from libCRS.base import DataType; print('libCRS OK')"
 
-# Install crs-codex package (patcher + agents) via uv
+# Install crs-codex package (patcher + agents)
 COPY pyproject.toml /opt/crs-codex/pyproject.toml
 COPY patcher.py /opt/crs-codex/patcher.py
 COPY agents/ /opt/crs-codex/agents/
-RUN uv pip install --system /opt/crs-codex
+RUN pip3 install /opt/crs-codex
 
 CMD ["run_patcher"]
