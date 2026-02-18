@@ -1,56 +1,84 @@
 # atlantis-codex
 
-A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Codex](https://docs.anthropic.com/en/docs/claude-code) to autonomously find and patch vulnerabilities in open-source projects.
+A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Codex CLI](https://developers.openai.com/codex/overview) to autonomously find and patch vulnerabilities in open-source projects.
 
-Given proof-of-vulnerability (POV) inputs that crash a target binary, the agent analyzes the crashes, edits source code, builds, tests, iterates, and submits a verified patch — all autonomously.
+Given proof-of-vulnerability (POV) inputs that crash a target binary, the agent analyzes the crashes, edits source code, builds, tests, iterates, and submits a verified patch.
 
 ## How it works
 
 ```
-POV files → reproduce crashes → Codex agent → .diff patch
-                                       ↕
-                                 libCRS (build & test via builder sidecar)
+POV files -> reproduce crashes -> Codex agent -> .diff patch
+                                    <->
+                              libCRS (build + test)
 ```
 
-1. **`run_patcher`** scans for POV files (all present before container starts) and reproduces all crashes against the unpatched binary.
-2. All POVs are batched as variants of the same vulnerability and handed to the **agent** (selected via `CRS_AGENT` env var) in a single session.
-3. The agent autonomously analyzes the vulnerability, edits source, and uses **libCRS** tools to build and test patches through a builder sidecar container — verifying against all POV variants.
+1. `run_patcher` scans POV files and reproduces crashes against the unpatched binary.
+2. All POVs are batched as variants of one bug and passed to the selected agent (`CRS_AGENT`, default `codex`).
+3. The agent runs `codex exec` non-interactively, edits source, and validates patches with libCRS build/test commands.
 4. A verified `.diff` is written to `/patches/`, where a daemon auto-submits it.
-
-The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (address, memory, undefined) is passed to the agent for context.
 
 ## Project structure
 
 ```
 bin/
-  run_patcher          # Thin launcher: scan POVs → agent
-  compile_target       # Builder phase: compiles the target project
+  run_patcher
+  compile_target
 agents/
-  codex.py             # Codex agent (default)
-  codex.md             # CLAUDE.md template with libCRS tool docs
-  template.py          # Stub for creating new agents
+  codex.py
+  codex.md
+  template.py
 oss-crs/
-  crs.yaml             # CRS metadata (supported languages, models, etc.)
-  example-compose.yaml # Example crs-compose configuration
-  base.Dockerfile      # Base image: Ubuntu + Node.js + Codex CLI + Python
-  builder.Dockerfile   # Build phase image
-  patcher.Dockerfile   # Run phase image
-  docker-bake.hcl      # Docker Bake config for the base image
-  sample-litellm-config.yaml  # LiteLLM proxy config template
+  crs.yaml
+  example-compose.yaml
+  base.Dockerfile
+  builder.Dockerfile
+  patcher.Dockerfile
+  docker-bake.hcl
+  sample-litellm-config.yaml
 ```
 
 ## Prerequisites
 
-- **[oss-crs](https://github.com/oss-crs/oss-crs)** — the CRS framework (`crs-compose` CLI)
-- **[oss-crs-builder](https://github.com/oss-crs/builder)** — builder sidecar that handles compilation and test execution
+- [oss-crs](https://github.com/oss-crs/oss-crs) (`crs-compose`)
+- [oss-crs-builder](https://github.com/oss-crs/builder) (builder sidecar)
 
-Set up both by following their respective READMEs before proceeding.
+## Runtime behavior (Codex-specific)
+
+- Execution command: `codex exec`
+- Approval/sandbox behavior: `--dangerously-bypass-approvals-and-sandbox`
+  - Equivalent intent to Claude Code's dangerously-skip-permissions mode
+  - Runs with no interactive permission prompts
+- Container hint: `IS_SANDBOX=1` is set by the agent setup
+- Instruction file generated per run: `AGENTS.md` in the target repo
+- Codex config file generated per run: `$CODEX_HOME/config.toml` (default `/root/.codex/config.toml`)
+- Debug artifacts:
+  - Shared directory: `/root/.codex` (registered as `codex-home`)
+  - Per-run logs: `/work/agent/codex_stdout.log`, `/work/agent/codex_stderr.log`
+  - Codex internal logs: `/root/.codex/log/`
+
+## Endpoint and model setup
+
+The patcher gets endpoint credentials from OSS-CRS env vars:
+- `OSS_CRS_LLM_API_URL`
+- `OSS_CRS_LLM_API_KEY`
+
+If both are present, the agent writes a Codex provider block in `config.toml`:
+- `model_provider = "oss_crs"`
+- `model_providers.oss_crs.base_url = <OSS_CRS_LLM_API_URL>`
+- `model_providers.oss_crs.env_key = "OSS_CRS_LLM_API_KEY"`
+- `model_providers.oss_crs.wire_api = "responses"`
+
+Model is provided by env var:
+- `CODEX_MODEL` (optional, default: `gpt-5.2-codex`)
+The agent writes `model = "<CODEX_MODEL>"` into `$CODEX_HOME/config.toml`.
+
+If `OSS_CRS_LLM_API_URL/KEY` are absent, Codex falls back to its default provider config.
 
 ## Quick start
 
 ### 1. Configure `crs-compose.yaml`
 
-Copy `oss-crs/example-compose.yaml` and update the paths:
+Copy `oss-crs/example-compose.yaml` and update paths:
 
 ```yaml
 atlantis-codex:
@@ -61,7 +89,7 @@ atlantis-codex:
   llm_budget: 10
   additional_env:
     CRS_AGENT: codex
-    CLAUDE_MODEL: claude-sonnet-4-5-20250929
+    CODEX_MODEL: gpt-5.2-codex
 
 llm_config:
   litellm_config: /path/to/sample-litellm-config.yaml
@@ -69,9 +97,9 @@ llm_config:
 
 ### 2. Configure LiteLLM
 
-Copy `oss-crs/sample-litellm-config.yaml` and set your API credentials. The LiteLLM proxy routes Codex's API calls to the Anthropic API (or your preferred provider). All models in `required_llms` must be configured — Codex uses the primary model for reasoning and may use smaller models (e.g., Haiku) for internal operations.
+Copy `oss-crs/sample-litellm-config.yaml` and set API credentials/endpoints for the models you intend to use (at minimum `gpt-5.2-codex`).
 
-### 3. Run with oss-crs
+### 3. Run
 
 ```bash
 crs-compose up -f crs-compose.yaml
@@ -81,26 +109,17 @@ crs-compose up -f crs-compose.yaml
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `CRS_AGENT` | `codex` | Agent module name (maps to `agents/<name>.py`) |
-| `CLAUDE_MODEL` | `claude-sonnet-4-5-20250929` | Primary Claude model for reasoning |
-| `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
-
-Available models:
-- `claude-opus-4-6`
-- `claude-opus-4-5-20251101`
-- `claude-opus-4-1-20250805`
-- `claude-sonnet-4-5-20250929`
-- `claude-sonnet-4-20250514`
-- `claude-haiku-4-5-20251001`
+| `CRS_AGENT` | `codex` | Agent module name (`agents/<name>.py`) |
+| `CODEX_MODEL` | `gpt-5.2-codex` | Model passed to `codex exec --model` |
+| `AGENT_TIMEOUT` | `0` | Timeout seconds (`0` = no limit) |
 
 ## Patch validity
 
-A patch is submitted only when it meets all criteria:
-
-1. **Builds** — compiles successfully
-2. **POVs don't crash** — all POV variants pass
-3. **Tests pass** — project test suite passes (or skipped if none exists)
-4. **Semantically correct** — fixes the root cause with a minimal patch
+A patch is submitted only if all are true:
+1. Builds successfully
+2. All POV variants stop crashing
+3. Test suite passes (or is skipped if none)
+4. Fix is semantically correct and minimal
 
 ## Adding a new agent
 
@@ -109,15 +128,15 @@ A patch is submitted only when it meets all criteria:
 3. Set `CRS_AGENT=my_agent`.
 
 The agent receives:
-- **source_dir** — clean git repo of the target project
-- **povs** — list of `(pov_path, crash_log)` tuples (variants of the same bug)
-- **harness** — harness name for `run-pov`
-- **patches_dir** — write verified `.diff` files here
-- **work_dir** — scratch space
-- **language** — target language (c, c++, java)
-- **sanitizer** — sanitizer type (address, memory, undefined)
+- `source_dir`: clean git repo of target project
+- `povs`: list of `(pov_path, crash_log)`
+- `harness`: harness name for `run-pov`
+- `patches_dir`: write verified `.diff` here
+- `work_dir`: scratch dir
+- `language`: target language
+- `sanitizer`: sanitizer type
 
-The agent has access to three libCRS commands:
-- `libCRS apply-patch-build <patch.diff> <response_dir>` — build a patch
-- `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id>` — test against a POV
-- `libCRS run-test <response_dir> --build-id <id>` — run the project's test suite
+Available libCRS commands:
+- `libCRS apply-patch-build <patch.diff> <response_dir>`
+- `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id>`
+- `libCRS run-test <response_dir> --build-id <id>`

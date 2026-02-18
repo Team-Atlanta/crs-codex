@@ -20,7 +20,7 @@ crs_run_phase:
     additional_env:
       # Default values. To override, set additional_env in compose yaml.
       CRS_AGENT: codex
-      CLAUDE_MODEL: claude-sonnet-4-5-20250929
+      # CODEX_MODEL: gpt-5.2-codex  # Optional override (default if unset)
       # AGENT_TIMEOUT: "0"  # seconds, 0 = no limit (default)
 
 supported_target:
@@ -37,9 +37,13 @@ supported_target:
     - x86_64
 
 required_llms:
-  - claude-opus-4-6
-  - claude-opus-4-5-20251101
-  - claude-opus-4-1-20250805
-  - claude-sonnet-4-5-20250929
-  - claude-sonnet-4-20250514
-  - claude-haiku-4-5-20251001
+  - gpt-5-2025-08-07
+  - gpt-5-mini-2025-08-07
+  - gpt-5-pro-2025-10-06
+  - gpt-5-codex
+  - gpt-5.1-2025-11-13
+  - gpt-5.1-codex
+  - gpt-5.1-codex-mini
+  - gpt-5.2-2025-12-11
+  - gpt-5.2-codex
+  # Codex variants currently expose canonical IDs without dated snapshot suffixes.

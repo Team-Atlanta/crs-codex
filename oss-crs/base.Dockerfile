@@ -32,8 +32,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Codex CLI (pinned to avoid breaking .claude.json schema changes)
-RUN npm install -g @anthropic-ai/claude-code@2.1.42
+# Codex CLI
+RUN npm install -g @openai/codex@latest
 
 # Git config
 RUN git config --global user.email "crs@oss-crs.dev" \
