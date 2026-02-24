@@ -138,9 +138,18 @@ def run(
 
     # Build optional diff section for delta mode
     if ref_diff:
+        # Extract changed file list from diff headers
+        changed_files = [
+            line.split("b/", 1)[1]
+            for line in ref_diff.splitlines()
+            if line.startswith("+++ b/")
+        ]
+        changed_files_str = ", ".join(f"`{f}`" for f in changed_files) if changed_files else "(see diff)"
         diff_section = (
             "\n## Reference Diff (Delta Mode)\n\n"
-            "This diff shows the code change that introduced the vulnerability:\n\n"
+            "This diff shows the change that introduced the vulnerability.\n"
+            "Fix the flaw in this change — don't blindly revert it.\n\n"
+            f"Changed files: {changed_files_str}\n\n"
             f"```diff\n{ref_diff}\n```\n"
         )
     else:
@@ -160,9 +169,15 @@ def run(
     )
     (source_dir / "AGENTS.md").write_text(agents_md)
 
+    target = os.environ.get("OSS_CRS_TARGET", source_dir.name)
+
+    # Build crash log file list for the prompt
+    crash_log_files = " ".join(f"`{work_dir}/crash_log_{i}.txt`" for i in range(len(povs)))
     prompt = (
-        f"Fix the vulnerability. There are {len(povs)} POV variant(s) — "
-        f"crash logs are in {work_dir}/crash_log_*.txt. See AGENTS.md for tools and POV details."
+        f"Fix the {sanitizer} vulnerability in project `{target}` "
+        f"(harness: `{harness}`). {len(povs)} POV variant(s).\n\n"
+        f"Crash logs: {crash_log_files}\n"
+        f"Read AGENTS.md for workflow, tools, and submission instructions."
     )
 
     stdout_log = work_dir / "codex_stdout.log"
