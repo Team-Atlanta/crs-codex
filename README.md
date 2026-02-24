@@ -99,7 +99,7 @@ Available models:
 
 ## Runtime behavior
 
-- **Execution**: `codex exec` with `--full-auto` (no interactive prompts)
+- **Execution**: `codex exec` with `--dangerously-bypass-approvals-and-sandbox` (no interactive prompts)
 - **Instruction file**: `AGENTS.md` generated per run in the target repo
 - **Config file**: `$CODEX_HOME/config.toml` (default `/root/.codex/config.toml`)
 
