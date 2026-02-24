@@ -41,6 +41,7 @@ LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
 
 # Builder sidecar module name (must match a run_snapshot module in crs.yaml)
 BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
+SUBMISSION_FLUSH_WAIT_SECS = int(os.environ.get("SUBMISSION_FLUSH_WAIT_SECS", "12"))
 
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
@@ -290,7 +291,7 @@ def main():
     if process_povs(pov_files, source_dir, agent, ref_diff=ref_diff):
         # Wait for the submission daemon to flush (batch_time=10s) before exiting.
         logger.info("Patch submitted. Waiting for daemon to flush...")
-        time.sleep(30)
+        time.sleep(SUBMISSION_FLUSH_WAIT_SECS)
 
 
 if __name__ == "__main__":
