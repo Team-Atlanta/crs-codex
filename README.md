@@ -16,7 +16,7 @@ Given proof-of-vulnerability (POV) inputs that crash a target binary, the agent 
 │         │                                │                          │
 │         ▼                                ▼                          │
 │  3. Launch Codex agent with crash logs + AGENTS.md                  │
-│     codex exec --dangerously-bypass-approvals-and-sandbox           │
+│     codex exec --dangerously-bypass-approvals-and-sandbox <prompt>  │
 └─────────┬───────────────────────────────────────────────────────────┘
           │ prompt with crash log paths
           ▼
