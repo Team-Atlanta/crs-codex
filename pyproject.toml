@@ -7,6 +7,7 @@ name = "crs-codex"
 version = "1.0.0"
 description = "CRS using Codex CLI for autonomous vulnerability patching"
 requires-python = ">=3.10"
+license = "MIT"
 dependencies = []
 
 [project.scripts]
