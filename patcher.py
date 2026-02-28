@@ -10,6 +10,7 @@ To add a new agent, create a module in agents/ implementing setup() and run().
 """
 
 import importlib
+import inspect
 import logging
 import os
 import shutil
@@ -46,13 +47,14 @@ SUBMISSION_FLUSH_WAIT_SECS = int(os.environ.get("SUBMISSION_FLUSH_WAIT_SECS", "1
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
 
-# No crash log truncation — the agent manages its own context window.
+# No evidence truncation in patcher — the agent manages its own context window.
 
 # Framework directories
 WORK_DIR = Path("/work")
 PATCHES_DIR = Path("/patches")
 POV_DIR = WORK_DIR / "povs"
 DIFF_DIR = WORK_DIR / "diffs"
+BUG_CANDIDATE_DIR = WORK_DIR / "bug-candidates"
 
 # CRS utils instance (initialized in main())
 crs = None
@@ -67,24 +69,51 @@ def _reset_source(source_dir: Path) -> None:
         logger.warning("Removing stale lock file: %s", lock_file)
         lock_file.unlink()
 
-    subprocess.run(
+    reset_proc = subprocess.run(
         ["git", "reset", "--hard", "HEAD"],
         cwd=source_dir, capture_output=True, timeout=60,
     )
-    subprocess.run(
+    clean_proc = subprocess.run(
         ["git", "clean", "-fd"],
         cwd=source_dir, capture_output=True, timeout=60,
     )
+    if reset_proc.returncode != 0:
+        stderr = reset_proc.stderr.decode(errors="replace") if isinstance(reset_proc.stderr, bytes) else str(reset_proc.stderr)
+        raise RuntimeError(f"git reset failed: {stderr.strip()}")
+    if clean_proc.returncode != 0:
+        stderr = clean_proc.stderr.decode(errors="replace") if isinstance(clean_proc.stderr, bytes) else str(clean_proc.stderr)
+        raise RuntimeError(f"git clean failed: {stderr.strip()}")
+
+
+def _snapshot_patch_state() -> dict[str, tuple[int, int]]:
+    """Capture patch file state by name -> (mtime_ns, size)."""
+    state: dict[str, tuple[int, int]] = {}
+    for p in PATCHES_DIR.glob("*.diff"):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        state[p.name] = (st.st_mtime_ns, st.st_size)
+    return state
 
 
 def setup_source() -> Path | None:
     """Download source code and locate the project source directory."""
     # Ensure safe.directory is set system-wide so git works regardless of
     # file ownership (downloaded source may have different uid).
-    subprocess.run(
+    safe_dir_proc = subprocess.run(
         ["git", "config", "--system", "--add", "safe.directory", "*"],
         capture_output=True,
     )
+    if safe_dir_proc.returncode != 0:
+        fallback_proc = subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", "*"],
+            capture_output=True,
+        )
+        if fallback_proc.returncode != 0:
+            logger.warning(
+                "Failed to configure git safe.directory in both --system and --global scopes"
+            )
 
     source_dir = WORK_DIR / "src"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +134,10 @@ def setup_source() -> Path | None:
 
     # If still no project_dir, use "repo/" or first subdir as fallback.
     if not project_dir.exists():
-        subdirs = [d for d in source_dir.iterdir() if d.is_dir()]
+        subdirs = sorted(
+            (d for d in source_dir.iterdir() if d.is_dir()),
+            key=lambda p: p.name,
+        )
         if subdirs:
             project_dir = subdirs[0]
         else:
@@ -118,10 +150,27 @@ def setup_source() -> Path | None:
         logger.info("No .git found in %s, initializing git repo", project_dir)
         subprocess.run(["git", "init"], cwd=project_dir, capture_output=True, timeout=60)
         subprocess.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, timeout=60)
-        subprocess.run(
-            ["git", "commit", "-m", "initial source"],
+        commit_proc = subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=crs-codex",
+                "-c",
+                "user.email=crs-codex@local",
+                "commit",
+                "-m",
+                "initial source",
+            ],
             cwd=project_dir, capture_output=True, timeout=60,
         )
+        if commit_proc.returncode != 0:
+            stderr = (
+                commit_proc.stderr.decode(errors="replace")
+                if isinstance(commit_proc.stderr, bytes)
+                else str(commit_proc.stderr)
+            )
+            logger.error("Failed to create initial commit: %s", stderr.strip())
+            return None
 
     return project_dir
 
@@ -143,45 +192,6 @@ def wait_for_builder() -> bool:
         return False
 
 
-def _read_response_streams(response_dir: Path, prefix: str) -> str:
-    """Read raw stdout/stderr for a libCRS response directory transparently."""
-    parts: list[str] = []
-    for stream in ("stdout", "stderr"):
-        path = response_dir / f"{prefix}_{stream}.log"
-        if not path.exists():
-            continue
-        text = path.read_text(errors="replace")
-        parts.append(f"===== {path.name} =====\n{text}")
-
-    if not parts:
-        return ""
-    return "\n\n".join(parts)
-
-
-def reproduce_crash(pov_path: Path) -> str:
-    """Reproduce crash via builder sidecar using the base (unpatched) build."""
-    if not HARNESS:
-        return "No harness configured"
-
-    response_dir = WORK_DIR / f"pov-{pov_path.stem}" / "reproduce"
-    response_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        exit_code = crs.run_pov(pov_path, HARNESS, "base", response_dir, BUILDER_MODULE)
-        logger.info("reproduce_crash run-pov exit code: %d", exit_code)
-
-        stream_output = _read_response_streams(response_dir, "pov")
-        if stream_output:
-            return f"run-pov exit code: {exit_code}\n\n{stream_output}"
-
-        return (
-            f"run-pov exit code: {exit_code}\n"
-            f"No POV stdout/stderr logs found in {response_dir}"
-        )
-    except Exception as e:
-        return f"Error reproducing crash: {e}"
-
-
 def load_agent(agent_name: str):
     """Dynamically load an agent module from the agents package."""
     module_name = f"agents.{agent_name}"
@@ -192,49 +202,106 @@ def load_agent(agent_name: str):
         sys.exit(1)
 
 
-def process_povs(pov_paths: list[Path], source_dir: Path, agent,
-                  ref_diff: str | None = None) -> bool:
-    """Process a batch of POV variants in a single agent session.
+def process_inputs(
+    pov_paths: list[Path],
+    source_dir: Path,
+    agent,
+    bug_candidate_paths: list[Path],
+    ref_diff: str | None = None,
+) -> bool:
+    """Process available inputs in a single agent session.
 
-    All POVs are assumed to be variants of the same vulnerability.
-    We reproduce all crashes, then hand the full set to the agent so it
-    can produce a patch that fixes all of them.
-
-    Returns True if a patch was produced.
+    Inputs can include any combination of:
+    - POV files
+    - Bug-candidate files (e.g., SARIF or other static report formats)
+    - Reference diff (delta context)
     """
-    povs = []
-    for pov_path in pov_paths:
-        logger.info("Reproducing crash for POV: %s", pov_path.name)
-        crash_log = reproduce_crash(pov_path)
-        logger.info("Crash log for %s:\n%s", pov_path.name, crash_log)
-        povs.append((pov_path, crash_log))
-
-    _reset_source(source_dir)
+    try:
+        _reset_source(source_dir)
+    except Exception as e:
+        logger.error("Failed to reset source before agent run: %s", e)
+        return False
 
     agent_work_dir = WORK_DIR / "agent"
     agent_work_dir.mkdir(parents=True, exist_ok=True)
 
-    agent.run(source_dir, povs, HARNESS, PATCHES_DIR, agent_work_dir,
-              language=LANGUAGE, sanitizer=SANITIZER, builder=BUILDER_MODULE,
-              ref_diff=ref_diff)
+    existing_patches = _snapshot_patch_state()
+    run_result = False
 
-    _reset_source(source_dir)
+    run_sig = inspect.signature(agent.run)
+    if "bug_candidates" in run_sig.parameters:
+        run_kwargs = {
+            "source_dir": source_dir,
+            "povs": pov_paths,
+            "bug_candidates": bug_candidate_paths,
+            "harness": HARNESS,
+            "patches_dir": PATCHES_DIR,
+            "work_dir": agent_work_dir,
+        }
+        optional_kwargs = {
+            "language": LANGUAGE,
+            "sanitizer": SANITIZER,
+            "builder": BUILDER_MODULE,
+            "ref_diff": ref_diff,
+        }
+        for key, value in optional_kwargs.items():
+            if key in run_sig.parameters:
+                run_kwargs[key] = value
+        run_result = bool(
+            agent.run(**run_kwargs)
+        )
+    else:
+        # Backward compatibility for custom agents using the old interface.
+        old_kwargs = {}
+        if "language" in run_sig.parameters:
+            old_kwargs["language"] = LANGUAGE
+        if "sanitizer" in run_sig.parameters:
+            old_kwargs["sanitizer"] = SANITIZER
+        if "builder" in run_sig.parameters:
+            old_kwargs["builder"] = BUILDER_MODULE
+        if "ref_diff" in run_sig.parameters:
+            old_kwargs["ref_diff"] = ref_diff
+        run_result = bool(
+            agent.run(
+                source_dir,
+                pov_paths,
+                HARNESS,
+                PATCHES_DIR,
+                agent_work_dir,
+                **old_kwargs,
+            )
+        )
 
-    patches = list(PATCHES_DIR.glob("*.diff"))
-    if patches:
-        patch_names = [p.name for p in patches]
-        if len(patches) > 1:
+    try:
+        _reset_source(source_dir)
+    except Exception as e:
+        logger.error("Failed to reset source after agent run: %s", e)
+        return False
+
+    current_patches = _snapshot_patch_state()
+    changed_patch_names = sorted(
+        name
+        for name, state in current_patches.items()
+        if existing_patches.get(name) != state
+    )
+    if changed_patch_names:
+        if len(changed_patch_names) > 1:
             logger.warning(
-                "Multiple patch files detected (%d): %s. Each file in %s is auto-submitted.",
-                len(patches), patch_names, PATCHES_DIR,
+                "Multiple changed patch files detected (%d): %s. Each file in %s is auto-submitted.",
+                len(changed_patch_names), changed_patch_names, PATCHES_DIR,
             )
         logger.warning(
             "Submission is final: detected patch file(s) %s in %s. Submitted patches cannot be edited or resubmitted.",
-            patch_names, PATCHES_DIR,
+            changed_patch_names, PATCHES_DIR,
         )
-        logger.info("Patch produced: %s", patch_names)
+        logger.info("Updated/new patch produced: %s", changed_patch_names)
         return True
 
+    if run_result:
+        logger.warning(
+            "Agent reported success but no new patch file was created in %s",
+            PATCHES_DIR,
+        )
     logger.warning("Agent did not produce a patch")
     return False
 
@@ -277,19 +344,49 @@ def main():
     except Exception as e:
         logger.warning("Diff fetch failed: %s — delta mode diffs unavailable", e)
 
+    # Fetch bug-candidate reports (one-shot, optional).
+    try:
+        bug_files_fetched = crs.fetch(DataType.BUG_CANDIDATE, BUG_CANDIDATE_DIR)
+        if bug_files_fetched:
+            logger.info(
+                "Fetched %d bug-candidate file(s) into %s",
+                len(bug_files_fetched),
+                BUG_CANDIDATE_DIR,
+            )
+    except Exception as e:
+        logger.warning("Bug-candidate fetch failed: %s — static findings unavailable", e)
+
     # Register Codex home (including logs) as shared dir for post-run analysis.
     # register-shared-dir creates a symlink, so the path must not exist beforehand.
+    # Preserve existing Codex home and restore it if registration fails.
     codex_home = Path.home() / ".codex"
-    if codex_home.is_symlink():
-        codex_home.unlink()
-    elif codex_home.exists():
-        shutil.rmtree(codex_home)
+    codex_home_backup = codex_home.with_name(".codex.pre-crs-backup")
+    had_existing_codex_home = codex_home.exists() or codex_home.is_symlink()
+    if codex_home_backup.exists() or codex_home_backup.is_symlink():
+        if codex_home_backup.is_symlink() or codex_home_backup.is_file():
+            codex_home_backup.unlink()
+        else:
+            shutil.rmtree(codex_home_backup)
+    if had_existing_codex_home:
+        codex_home.rename(codex_home_backup)
+
     try:
         crs.register_shared_dir(codex_home, "codex-home")
         logger.info("Codex home shared at %s", codex_home)
+        if codex_home_backup.exists() or codex_home_backup.is_symlink():
+            logger.info("Preserved previous Codex home backup at %s", codex_home_backup)
     except Exception as e:
         logger.warning("Failed to register codex-home shared dir: %s", e)
-        codex_home.mkdir(parents=True, exist_ok=True)
+        if codex_home.exists() or codex_home.is_symlink():
+            if codex_home.is_symlink() or codex_home.is_file():
+                codex_home.unlink()
+            else:
+                shutil.rmtree(codex_home)
+        if codex_home_backup.exists() or codex_home_backup.is_symlink():
+            codex_home_backup.rename(codex_home)
+            logger.info("Restored previous Codex home from backup")
+        else:
+            codex_home.mkdir(parents=True, exist_ok=True)
 
     source_dir = setup_source()
     if source_dir is None:
@@ -306,14 +403,25 @@ def main():
         "codex_home": str(codex_home),
     })
 
-    # POV files were fetched above — scan them.
+    # Inputs were fetched above — scan available artifacts.
     pov_files = sorted(f for f in POV_DIR.rglob("*") if f.is_file() and not f.name.startswith("."))
+    bug_candidate_files = sorted(
+        f for f in BUG_CANDIDATE_DIR.rglob("*") if f.is_file() and not f.name.startswith(".")
+    )
 
-    if not pov_files:
-        logger.warning("No POV files found in %s", POV_DIR)
-        sys.exit(0)
+    if pov_files:
+        logger.info("Found %d POV(s): %s", len(pov_files), [p.name for p in pov_files])
+    else:
+        logger.info("No POV files found in %s", POV_DIR)
 
-    logger.info("Found %d POV(s): %s", len(pov_files), [p.name for p in pov_files])
+    if bug_candidate_files:
+        logger.info(
+            "Found %d bug-candidate file(s): %s",
+            len(bug_candidate_files),
+            [p.name for p in bug_candidate_files],
+        )
+    else:
+        logger.info("No bug-candidate files found in %s", BUG_CANDIDATE_DIR)
 
     # Read reference diff if available (delta mode).
     ref_diff = None
@@ -321,12 +429,28 @@ def main():
     if DIFF_DIR.exists() and ref_diff_path.is_file():
         ref_diff = ref_diff_path.read_text()
         logger.info("Reference diff found (%d chars)", len(ref_diff))
+    else:
+        logger.info("No reference diff found in %s", DIFF_DIR)
+
+    if not pov_files and not bug_candidate_files and not ref_diff:
+        logger.warning(
+            "No actionable input found (POV, bug-candidate, or diff). Nothing to do."
+        )
+        sys.exit(0)
 
     if not wait_for_builder():
-        logger.error("Cannot proceed without builder sidecar")
-        sys.exit(1)
+        logger.warning(
+            "Builder sidecar unavailable at startup. Continuing run; "
+            "agent may still fail build/test commands."
+        )
 
-    if process_povs(pov_files, source_dir, agent, ref_diff=ref_diff):
+    if process_inputs(
+        pov_files,
+        source_dir,
+        agent,
+        bug_candidate_files,
+        ref_diff=ref_diff,
+    ):
         # Wait for the submission daemon to flush (batch_time=10s) before exiting.
         logger.info("Patch submitted. Waiting for daemon to flush...")
         time.sleep(SUBMISSION_FLUSH_WAIT_SECS)

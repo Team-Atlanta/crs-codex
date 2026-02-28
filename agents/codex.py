@@ -24,15 +24,76 @@ try:
     AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "0"))
 except ValueError:
     AGENT_TIMEOUT = 0
+if AGENT_TIMEOUT < 0:
+    AGENT_TIMEOUT = 0
 
 _TEMPLATE_PATH = Path(__file__).with_suffix(".md")
-AGENTS_MD_TEMPLATE = _TEMPLATE_PATH.read_text()
+_SECTIONS_DIR = _TEMPLATE_PATH.with_name("sections")
+
+def _load_section(section_name: str) -> str:
+    section_path = _SECTIONS_DIR / section_name
+    return section_path.read_text()
+
+
+def _load_prompt_templates() -> dict[str, str]:
+    return {
+        "agents_md": _TEMPLATE_PATH.read_text(),
+        "workflow_pov": _load_section("workflow_pov.md"),
+        "workflow_static": _load_section("workflow_static.md"),
+        "pov_present": _load_section("pov_present.md"),
+        "pov_absent": _load_section("pov_absent.md"),
+        "bug_candidates_present": _load_section("bug_candidates_present.md"),
+        "bug_candidates_absent": _load_section("bug_candidates_absent.md"),
+        "diff_present": _load_section("diff_present.md"),
+        "pre_submit": _load_section("pre_submit.md"),
+    }
 
 
 def _toml_quote(value: str) -> str:
     """Return a TOML-safe quoted string for simple values."""
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+def _md_inline(value: str) -> str:
+    """Return a markdown-safe inline code span."""
+    ticks = 1
+    while "`" * ticks in value:
+        ticks += 1
+    fence = "`" * ticks
+    return f"{fence}{value}{fence}"
+
+
+def _snapshot_patch_state(patches_dir: Path) -> dict[str, tuple[int, int]]:
+    """Capture patch file state by name -> (mtime_ns, size)."""
+    state: dict[str, tuple[int, int]] = {}
+    for p in patches_dir.glob("*.diff"):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        state[p.name] = (st.st_mtime_ns, st.st_size)
+    return state
+
+
+def _changed_patches(
+    before: dict[str, tuple[int, int]], patches_dir: Path
+) -> list[str]:
+    """Return sorted patch names that are new or modified since snapshot."""
+    now = _snapshot_patch_state(patches_dir)
+    return sorted(name for name, state in now.items() if before.get(name) != state)
+
+
+def _make_fenced_block(body: str, language: str = "") -> str:
+    """Return a markdown fenced block with a safe backtick fence."""
+    fence_len = 3
+    while "`" * fence_len in body:
+        fence_len += 1
+    fence = "`" * fence_len
+    lang = language.strip()
+    if lang:
+        return f"{fence}{lang}\n{body}\n{fence}"
+    return f"{fence}\n{body}\n{fence}"
 
 
 def setup(source_dir: Path, config: dict) -> None:
@@ -90,18 +151,33 @@ def setup(source_dir: Path, config: dict) -> None:
 
     # Global gitignore so runtime instructions never leak into patches.
     global_gitignore = Path.home() / ".gitignore"
-    global_gitignore.write_text("AGENTS.md\n")
-    subprocess.run(
-        ["git", "config", "--global", "core.excludesFile", str(global_gitignore)],
-        capture_output=True,
-    )
+    existing = ""
+    if global_gitignore.exists():
+        existing = global_gitignore.read_text(errors="replace")
+    lines = [line.rstrip("\n") for line in existing.splitlines()]
+    if "AGENTS.md" not in lines:
+        lines.append("AGENTS.md")
+    global_gitignore.write_text("\n".join(lines).rstrip("\n") + "\n")
+    try:
+        git_cfg = subprocess.run(
+            ["git", "config", "--global", "core.excludesFile", str(global_gitignore)],
+            capture_output=True,
+        )
+        if git_cfg.returncode != 0:
+            logger.warning(
+                "Failed to set global git excludesFile: %s",
+                git_cfg.stderr.decode(errors="replace") if isinstance(git_cfg.stderr, bytes) else git_cfg.stderr,
+            )
+    except OSError as e:
+        logger.warning("Failed to run git config for excludesFile: %s", e)
 
     logger.info("Agent setup complete")
 
 
 def run(
     source_dir: Path,
-    povs: list[tuple[Path, str]],
+    povs: list[Path],
+    bug_candidates: list[Path],
     harness: str,
     patches_dir: Path,
     work_dir: Path,
@@ -113,28 +189,48 @@ def run(
 ) -> bool:
     """Launch Codex in agentic mode to autonomously fix the vulnerability.
 
-    povs is a list of (pov_path, crash_log) tuples — variants of the same bug.
-    Writes all crash logs and AGENTS.md (with concrete paths), then sends a prompt.
+    povs is a list of POV paths (possibly empty).
+    bug_candidates is a list of static finding files (possibly empty).
+    Writes available evidence and AGENTS.md (with concrete paths), then sends a prompt.
     Codex autonomously analyzes, edits, builds, tests, iterates, and
     writes the final .diff to patches_dir.
 
     Returns True if a patch file was produced in patches_dir.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        templates = _load_prompt_templates()
+    except OSError as e:
+        logger.error("Failed to load prompt template(s): %s", e)
+        return False
 
-    # Write each crash log to a file and build POV sections for AGENTS.md
     pov_sections = []
-    for i, (pov_path, crash_log) in enumerate(povs):
-        crash_log_path = work_dir / f"crash_log_{i}.txt"
-        crash_log_path.write_text(crash_log)
-        logger.info("Wrote crash log to %s", crash_log_path)
-
+    for pov_path in povs:
         pov_sections.append(
-            f"- POV: `{pov_path}` — crash log: `{crash_log_path}`\n"
-            f"  Test: `libCRS run-pov {pov_path} <response_dir> --harness {harness} --build-id <build_id> --builder {builder}`"
+            f"- POV: {_md_inline(str(pov_path))}\n"
+            f"  Reproduce/Test: {_md_inline(f'libCRS run-pov {pov_path} <response_dir> --harness {harness} --build-id <build_id> --builder {builder}')}"
         )
 
-    pov_list = "\n".join(pov_sections)
+    if pov_sections:
+        pov_list = "\n".join(pov_sections)
+        pov_section = templates["pov_present"].format(
+            pov_count=len(povs),
+            pov_list=pov_list,
+        )
+        workflow_section = templates["workflow_pov"]
+        pre_submit_pov = "- [ ] `pov_exit_code` = 0 for EVERY provided POV variant\n"
+    else:
+        pov_section = templates["pov_absent"]
+        workflow_section = templates["workflow_static"]
+        pre_submit_pov = ""
+
+    bug_candidate_list = "\n".join(f"- {_md_inline(str(p))}" for p in bug_candidates)
+    if bug_candidate_list:
+        bug_candidate_section = templates["bug_candidates_present"].format(
+            bug_candidate_list=bug_candidate_list
+        )
+    else:
+        bug_candidate_section = templates["bug_candidates_absent"]
 
     # Build optional diff section for delta mode
     if ref_diff:
@@ -144,26 +240,38 @@ def run(
             for line in ref_diff.splitlines()
             if line.startswith("+++ b/")
         ]
-        changed_files_str = ", ".join(f"`{f}`" for f in changed_files) if changed_files else "(see diff)"
-        diff_section = (
-            "\n## Reference Diff (Delta Mode)\n\n"
-            "This diff shows the change that introduced the vulnerability.\n"
-            "Fix the flaw in this change — don't blindly revert it.\n\n"
-            f"Changed files: {changed_files_str}\n\n"
-            f"```diff\n{ref_diff}\n```\n"
+        changed_files_str = ", ".join(_md_inline(f) for f in changed_files) if changed_files else "(see diff)"
+        diff_section = templates["diff_present"].format(
+            changed_files_str=changed_files_str,
+            diff_block=_make_fenced_block(ref_diff, "diff"),
         )
     else:
         diff_section = ""
 
-    # Write AGENTS.md with concrete paths for all POVs.
-    agents_md = AGENTS_MD_TEMPLATE.format(
+    # Build optional validation and reference sections.
+    if ref_diff:
+        diff_validation_hint = (
+            "- [ ] Patch addresses the vulnerable change context from the reference diff\n"
+        )
+    else:
+        diff_validation_hint = ""
+
+    pre_submit_section = templates["pre_submit"].format(
+        pov_line=pre_submit_pov,
+        diff_line=diff_validation_hint,
+    )
+
+    # Write AGENTS.md with concrete paths for all available evidence.
+    agents_md = templates["agents_md"].format(
         language=language,
         sanitizer=sanitizer,
         work_dir=work_dir,
         harness=harness,
         patches_dir=patches_dir,
-        pov_list=pov_list,
-        pov_count=len(povs),
+        workflow_section=workflow_section,
+        pov_section=pov_section,
+        bug_candidate_section=bug_candidate_section,
+        pre_submit_section=pre_submit_section,
         builder=builder,
         diff_section=diff_section,
     )
@@ -171,14 +279,28 @@ def run(
 
     target = os.environ.get("OSS_CRS_TARGET", source_dir.name)
 
-    # Build crash log file list for the prompt
-    crash_log_files = " ".join(f"`{work_dir}/crash_log_{i}.txt`" for i in range(len(povs)))
-    prompt = (
-        f"Fix the {sanitizer} vulnerability in project `{target}` "
-        f"(harness: `{harness}`). {len(povs)} POV variant(s).\n\n"
-        f"Crash logs: {crash_log_files}\n"
-        f"Read AGENTS.md for workflow, tools, and submission instructions."
+    # Build dynamic top-level prompt based on available evidence.
+    prompt_lines = [
+        f"Fix the {sanitizer} vulnerability in project {_md_inline(target)} (harness: {_md_inline(harness)}).",
+        "",
+        "Available evidence:",
+        f"- POV variants: {len(povs)}",
+        f"- Bug-candidate files: {len(bug_candidates)}",
+        f"- Reference diff: {'yes' if ref_diff else 'no'}",
+    ]
+    if povs:
+        pov_files = " ".join(_md_inline(str(p)) for p in povs)
+        prompt_lines.append(f"- POV files: {pov_files}")
+    if bug_candidates:
+        bug_files = " ".join(_md_inline(str(p)) for p in bug_candidates)
+        prompt_lines.append(f"- Bug-candidate report files: {bug_files}")
+    prompt_lines.extend(
+        [
+            "",
+            "Read AGENTS.md for workflow, tools, and submission instructions.",
+        ]
     )
+    prompt = "\n".join(prompt_lines)
 
     stdout_log = work_dir / "codex_stdout.log"
     stderr_log = work_dir / "codex_stderr.log"
@@ -198,6 +320,8 @@ def run(
 
     # Stream stdout/stderr to files. Additional Codex debug logs are under $CODEX_HOME/log.
 
+    existing_patches = _snapshot_patch_state(patches_dir)
+
     try:
         with open(stdout_log, "w") as out_f, open(stderr_log, "w") as err_f:
             proc = subprocess.Popen(
@@ -216,10 +340,12 @@ def run(
                 try:
                     os.killpg(proc.pid, signal.SIGTERM)
                     time.sleep(2)
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    if proc.poll() is None:
+                        os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 proc.wait()
+                logger.info("Codex exit code after timeout handling: %d", proc.returncode)
     except Exception as e:
         logger.error("Error running Codex: %s", e)
         return False
@@ -227,10 +353,14 @@ def run(
     if proc.returncode != 0:
         logger.warning("Codex failed (rc=%d), see %s", proc.returncode, stderr_log)
 
-    # Check if agent produced any patch files
-    patches = list(patches_dir.glob("*.diff"))
-    if patches:
-        logger.info("Agent produced %d patch(es): %s", len(patches), [p.name for p in patches])
+    # Check if agent produced new patch files in this run.
+    changed_patches = _changed_patches(existing_patches, patches_dir)
+    if changed_patches:
+        logger.info(
+            "Agent produced %d updated/new patch(es): %s",
+            len(changed_patches),
+            changed_patches,
+        )
         return True
 
     logger.info("Agent did not produce a patch")
