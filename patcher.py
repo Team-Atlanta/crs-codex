@@ -272,11 +272,12 @@ def process_inputs(
             )
         )
 
+    post_run_reset_ok = True
     try:
         _reset_source(source_dir)
     except Exception as e:
+        post_run_reset_ok = False
         logger.error("Failed to reset source after agent run: %s", e)
-        return False
 
     current_patches = _snapshot_patch_state()
     changed_patch_names = sorted(
@@ -302,6 +303,8 @@ def process_inputs(
             "Agent reported success but no new patch file was created in %s",
             PATCHES_DIR,
         )
+    if not post_run_reset_ok:
+        logger.warning("Source reset failed after agent run and no patch was produced")
     logger.warning("Agent did not produce a patch")
     return False
 
