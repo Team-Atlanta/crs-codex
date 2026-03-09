@@ -2,7 +2,7 @@
 
 A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Codex CLI](https://developers.openai.com/codex/overview) to autonomously find and patch vulnerabilities in open-source projects.
 
-Given available vulnerability evidence (POVs, bug-candidate reports such as SARIF, and/or reference diff), the agent analyzes the inputs, edits source code, attempts verification, and submits a patch — all autonomously.
+Given any boot-time subset of vulnerability evidence (POVs, bug-candidate reports such as SARIF, diff files, and/or seeds), the agent analyzes the inputs, edits source code, attempts verification, and writes one final patch for submission.
 
 ## How it works
 
@@ -10,10 +10,9 @@ Given available vulnerability evidence (POVs, bug-candidate reports such as SARI
 ┌─────────────────────────────────────────────────────────────────────┐
 │ patcher.py (orchestrator)                                           │
 │                                                                     │
-│  1. Fetch inputs & source                                         │
-│     crs.fetch(POV/BUG_CANDIDATE)                                  │
-│     crs.fetch(DIFF)                                               │
-│     crs.download(src)                                             │
+│  1. Fetch startup inputs & source                                  │
+│     crs.fetch(POV/BUG_CANDIDATE/DIFF/SEED)                         │
+│     crs.download(src)                                              │
 │         │                                                         │
 │         ▼                                                         │
 │  2. Launch Codex agent with available evidence + AGENTS.md        │
@@ -28,9 +27,9 @@ Given available vulnerability evidence (POVs, bug-candidate reports such as SARI
 │  │ Analyze  │───▶│   Fix    │───▶│   Verify     │                   │
 │  │          │    │          │    │              │                   │
 │  │ Read     │    │ Edit src │    │ apply-patch  │──▶ Builder        │
-│  │ POV /    │    │ git diff │    │   -build     │    sidecar        │
-│  │ static   │    │          │    │              │◀── build_id       │
-│  │ evidence │    │          │    │              │                   │
+│  │ startup  │    │ git diff │    │   -build     │    sidecar        │
+│  │ evidence │    │          │    │              │◀── build_id       │
+│  │ by path  │    │          │    │              │                   │
 │  └──────────┘    └──────────┘    │ run-pov ────│──▶ Builder        │
 │                                  │   (all POVs)│◀── pov_exit_code  │
 │                       ▲          │ run-test ───│──▶ Builder        │
@@ -45,22 +44,22 @@ Given available vulnerability evidence (POVs, bug-candidate reports such as SARI
           │
           ▼
 ┌─────────────────────────┐
-│ Submission daemon        │
-│ watches /patches/ ──────▶ oss-crs framework (auto-submit)
+│ patcher.py               │
+│ submit(first patch) ───▶ oss-crs framework
 └─────────────────────────┘
 ```
 
-1. **`run_patcher`** fetches available inputs (POV, bug-candidate, diff) and source, then passes them to the agent.
-2. Collected evidence is handed to **Codex CLI** in a single session with generated `AGENTS.md` instructions (reference diff is read from `diffs/ref.diff` when present).
-3. The agent autonomously analyzes evidence, edits source, and uses **libCRS** tools (`apply-patch-build`, `run-pov`, `run-test`) to attempt verification through the builder sidecar.
-4. A `.diff` written to `/patches/` is auto-submitted by the watcher daemon.
+1. **`run_patcher`** fetches available startup inputs (`POV`, `BUG_CANDIDATE`, `DIFF`, `SEED`) once, downloads source, and passes the fetched paths to the agent.
+2. Collected evidence is handed to **Codex CLI** in a single session with generated `AGENTS.md` instructions. No additional inputs are fetched after startup.
+3. The agent autonomously analyzes evidence, edits source, and uses **libCRS** tools (`apply-patch-build`, `run-pov`, `run-test`) to iterate as needed through the builder sidecar.
+4. When the first final `.diff` is written to `/patches/`, the patcher submits that single file with `crs.submit(DataType.PATCH, patch_path)` and exits. Later patch files or modifications are ignored.
 
 The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (`address` only in this CRS) is passed to the agent for context.
 
 ## Project structure
 
 ```
-patcher.py             # Patcher module: scan inputs (POV/bug-candidate/diff) → agent
+patcher.py             # Patcher module: one-time fetch of optional inputs → agent → first-patch submit
 pyproject.toml         # Package config (run_patcher entry point)
 bin/
   compile_target       # Builder phase: compiles the target project
@@ -124,7 +123,6 @@ crs-compose up -f crs-compose.yaml
 | `CODEX_MODEL` | `gpt-5.2-codex` | Model passed to `codex exec --model` |
 | `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
 | `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
-| `SUBMISSION_FLUSH_WAIT_SECS` | `12` | Seconds to wait before patcher exit after patch detection (lets submit daemon flush) |
 | `OSS_CRS_SNAPSHOT_IMAGE` | framework-provided | Required snapshot image reference used by patcher startup checks |
 
 Available models:
@@ -151,16 +149,16 @@ Debug artifacts:
 - Per-run logs: `/work/agent/codex_stdout.log`, `/work/agent/codex_stderr.log`
 - Codex internal logs: `/root/.codex/log/`
 
-## Patch validity
+## Patch submission
 
-The agent is instructed to satisfy all criteria before writing a patch:
+The agent is instructed to satisfy these criteria before writing a patch:
 
 1. **Builds** — compiles successfully
 2. **POVs don't crash** — all provided POV variants pass (if POVs were provided)
 3. **Tests pass** — project test suite passes (or skipped if none exists)
 4. **Semantically correct** — fixes the root cause with a minimal patch
 
-Runtime does not enforce these checks directly; submission is triggered when a `.diff` is written to `/patches/` and picked up by the watcher. Submitted patches cannot be edited or resubmitted, so complete a full pre-submit review first.
+Runtime remains trust-based: the patcher does not re-run final verification. Once the first `.diff` is written to `/patches/`, the patcher submits that single file and exits. Submitted patches cannot be edited or resubmitted, so the agent should only write to `/patches/` when it considers the patch final.
 
 ## Adding a new agent
 
@@ -176,13 +174,16 @@ The agent receives:
 - **source_dir** — clean git repo of the target project
 - **povs** — list of POV file paths (may be empty)
 - **bug_candidates** — list of static finding files (SARIF/JSON/text; may be empty)
+- **diffs** — list of fetched diff file paths (may be empty)
+- **seeds** — list of fetched seed file paths (may be empty)
 - **harness** — harness name for `run-pov`
-- **patches_dir** — write verified `.diff` files here
+- **patches_dir** — write exactly one final `.diff` here
 - **work_dir** — scratch space
 - **language** — target language (c, c++, jvm)
 - **sanitizer** — sanitizer type (`address` only)
 - **builder** — builder sidecar module name (keyword-only, required)
-- **ref_diff** — reference diff showing the bug-introducing change (delta mode only, None in full mode)
+
+All optional inputs are boot-time only. The patcher fetches them once and passes concrete paths to the agent; no new POVs, bug-candidates, diff files, or seeds appear during the run.
 
 The agent has access to three libCRS commands (the `--builder` flag specifies which builder sidecar module to use):
 - `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>` — build a patch
