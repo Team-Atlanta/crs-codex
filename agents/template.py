@@ -11,18 +11,18 @@ from pathlib import Path
 def setup(source_dir: Path, config: dict) -> None:
     """One-time agent configuration.
 
-    Called once at startup with the source directory and a config dict
-    containing at least: llm_api_url, llm_api_key, codex_home.
+    Called once at startup with the source directory and an agent-specific
+    config dict (for example: API URL/key, model token, or agent home dir).
     """
     raise NotImplementedError("Implement setup() for your agent")
 
 
 def run(
     source_dir: Path,
-    povs: list[Path],
-    bug_candidates: list[Path],
-    diffs: list[Path],
-    seeds: list[Path],
+    pov_dir: Path,
+    bug_candidate_dir: Path,
+    diff_dir: Path,
+    seed_dir: Path,
     harness: str,
     patches_dir: Path,
     work_dir: Path,
@@ -33,10 +33,9 @@ def run(
 ) -> bool:
     """Run the agent autonomously.
 
-    povs is a list of POV file paths — can be empty.
-    bug_candidates is a list of bug-candidate report files (SARIF/JSON/text) — can be empty.
-    diffs is a list of boot-time diff file paths — can be empty.
-    seeds is a list of boot-time seed file paths — can be empty.
+    pov_dir, bug_candidate_dir, diff_dir, and seed_dir are boot-time input
+    directories. Any of them may be empty. The agent should inspect and load
+    whatever files it needs from those paths.
     sanitizer is typically one of: address, undefined.
 
     The agent should:
