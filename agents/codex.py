@@ -269,6 +269,7 @@ def run(
     agents_md = templates["agents_md"].format(
         language=language,
         sanitizer=sanitizer,
+        source_dir=source_dir,
         work_dir=work_dir,
         harness=harness,
         patches_dir=patches_dir,

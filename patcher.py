@@ -284,36 +284,10 @@ def setup_source() -> Path | None:
     try:
         crs.download_source(SourceType.REPO, source_dir)
     except Exception as repo_error:
-        logger.warning("Failed to download repo source via libCRS: %s", repo_error)
-        try:
-            crs.download_build_output("src", source_dir)
-        except Exception as build_output_error:
-            logger.error(
-                "Failed to download source via repo and build output paths: repo=%s build_output=%s",
-                repo_error,
-                build_output_error,
-            )
-            return None
+        logger.error("Failed to download repo source via libCRS: %s", repo_error)
+        return None
 
-    # Locate the project directory: try "repo/" first, then any subdir with .git.
-    project_dir = source_dir / "repo"
-    if not project_dir.exists():
-        for d in source_dir.iterdir():
-            if d.is_dir() and (d / ".git").exists():
-                project_dir = d
-                break
-
-    # If still no project_dir, use "repo/" or first subdir as fallback.
-    if not project_dir.exists():
-        subdirs = sorted(
-            (d for d in source_dir.iterdir() if d.is_dir()),
-            key=lambda p: p.name,
-        )
-        if subdirs:
-            project_dir = subdirs[0]
-        else:
-            logger.error("No project directory found in %s", source_dir)
-            return None
+    project_dir = source_dir
 
     # Initialize a git repo if the source doesn't have one.
     # The agent needs git to generate patches (git add -A && git diff --cached).
