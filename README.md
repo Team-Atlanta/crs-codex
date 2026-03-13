@@ -150,7 +150,7 @@ Available models:
 If `OSS_CRS_LLM_API_URL` and `OSS_CRS_LLM_API_KEY` are set, the agent writes a custom provider block in `config.toml` pointing Codex at the LiteLLM proxy. Otherwise Codex uses its default provider.
 
 Debug artifacts:
-- Shared directory: `/root/.codex` (registered as `codex-home`)
+- Log directory: `/root/.codex` (registered via `register-log-dir`)
 - Per-run logs: `/work/agent/codex_stdout.log`, `/work/agent/codex_stderr.log`
 - Codex internal logs: `/root/.codex/log/`
 

@@ -512,8 +512,8 @@ def main():
     except Exception as e:
         logger.warning("Seed fetch failed: %s — seeds unavailable", e)
 
-    # Register Codex home (including logs) as shared dir for post-run analysis.
-    # register-shared-dir creates a symlink, so the path must not exist beforehand.
+    # Register Codex home as a log directory for post-run analysis.
+    # register-log-dir creates a symlink, so the path must not exist beforehand.
     # Preserve existing Codex home and restore it if registration fails.
     codex_home = Path.home() / ".codex"
     codex_home_backup = codex_home.with_name(".codex.pre-crs-backup")
@@ -525,12 +525,12 @@ def main():
         codex_home.rename(codex_home_backup)
 
     try:
-        crs.register_shared_dir(codex_home, "codex-home")
-        logger.info("Codex home shared at %s", codex_home)
+        crs.register_log_dir(codex_home)
+        logger.info("Codex home registered as log dir at %s", codex_home)
         if codex_home_backup.exists() or codex_home_backup.is_symlink():
             logger.info("Preserved previous Codex home backup at %s", codex_home_backup)
     except Exception as e:
-        logger.warning("Failed to register codex-home shared dir: %s", e)
+        logger.warning("Failed to register codex-home log dir: %s", e)
         if codex_home.exists() or codex_home.is_symlink():
             if codex_home.is_symlink() or codex_home.is_file():
                 codex_home.unlink()
