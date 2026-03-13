@@ -30,9 +30,9 @@ crs-codex:
     #   gpt-5.1-2025-11-13
     #   gpt-5.2-2025-12-11
     # Codex models currently use canonical IDs (no dated suffix published):
-    #   gpt-5-codex, gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.2-codex
+    #   gpt-5-codex, gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.2-codex, gpt-5.3-codex
     CRS_AGENT: codex
-    CODEX_MODEL: gpt-5.2-codex
+    CODEX_MODEL: gpt-5.3-codex
     # AGENT_TIMEOUT: "3600"                          # Optional: seconds, 0 = no limit (default)
 
 # --- Optional LLM Configuration --------------------------------------------

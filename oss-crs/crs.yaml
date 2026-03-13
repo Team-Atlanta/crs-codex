@@ -46,5 +46,5 @@ supported_target:
     - x86_64
 
 required_llms:
-  - gpt-5.2-codex
+  - gpt-5.3-codex
   # Codex variants currently expose canonical IDs without dated snapshot suffixes.
