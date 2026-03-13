@@ -25,6 +25,7 @@ crs_run_phase:
     additional_env:
       # Default values. To override, set additional_env in compose yaml.
       CRS_AGENT: codex
+      # CODEX_CLI_VERSION: "0.104.0"  # Optional prepare-phase override for base image build
       # CODEX_MODEL: gpt-5.2-codex  # Optional override (default if unset)
       # AGENT_TIMEOUT: "0"  # seconds, 0 = no limit (default)
       # BUILDER_MODULE: "inc-builder-asan"  # Builder sidecar module (must match run_snapshot module name)

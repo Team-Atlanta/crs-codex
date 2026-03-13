@@ -17,6 +17,10 @@ variable "VERSION" {
   default = "latest"
 }
 
+variable "CODEX_CLI_VERSION" {
+  default = "0.104.0"
+}
+
 function "tags" {
   params = [name]
   result = [
@@ -46,4 +50,7 @@ target "codex-base" {
   context    = "."
   dockerfile = "oss-crs/base.Dockerfile"
   tags       = tags("codex-base")
+  args = {
+    CODEX_CLI_VERSION = CODEX_CLI_VERSION
+  }
 }
