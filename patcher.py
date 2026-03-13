@@ -282,14 +282,22 @@ def setup_source() -> Path | None:
     source_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        crs.download_source(SourceType.REPO, source_dir)
+        project_dir = Path(crs.download_source(SourceType.REPO, source_dir))
     except Exception as repo_error:
         logger.error("Failed to download repo source via libCRS: %s", repo_error)
         return None
 
-    project_dir = source_dir
+    project_dir = project_dir.resolve()
+    source_dir = source_dir.resolve()
 
-    # Initialize a git repo if the source doesn't have one.
+    if project_dir != source_dir and source_dir not in project_dir.parents:
+        logger.error(
+            "libCRS returned project dir outside downloaded source tree: %s",
+            project_dir,
+        )
+        return None
+
+    # Initialize a git repo if the resolved project directory doesn't have one.
     # The agent needs git to generate patches (git add -A && git diff --cached).
     if not (project_dir / ".git").exists():
         logger.info("No .git found in %s, initializing git repo", project_dir)
