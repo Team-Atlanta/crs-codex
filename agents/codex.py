@@ -97,6 +97,14 @@ def setup(source_dir: Path, config: dict) -> None:
     - Configures non-interactive no-approval mode for autonomous patching
     - Writes AGENTS.md into source_dir with libCRS tool docs + workflow
     """
+    try:
+        ver = subprocess.run(
+            ["codex", "--version"], capture_output=True, text=True, timeout=10,
+        )
+        logger.info("Codex CLI version: %s", ver.stdout.strip() or ver.stderr.strip())
+    except Exception as e:
+        logger.warning("Failed to get Codex version: %s", e)
+
     llm_api_url = config.get("llm_api_url", "")
     llm_api_key = config.get("llm_api_key", "")
     codex_home = Path(config.get("codex_home", Path.home() / ".codex"))
