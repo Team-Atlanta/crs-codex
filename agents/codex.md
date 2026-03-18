@@ -5,10 +5,11 @@ You are fixing a **{sanitizer}** vulnerability in a {language} project.
 
 ## Rules
 
-- `{patches_dir}/` is the final patch submission directory for this run.
+- Submission to `{patches_dir}/` is FINAL and irreversible.
 - Write exactly ONE final `.diff` file to `{patches_dir}/`.
 - Never write temporary or experimental `.diff` files to `{patches_dir}/`.
 - During iteration, edit and test the repository in `{source_dir}`.
+- Write to `{patches_dir}/` exactly once, only after validation is complete.
 - Boot-time input paths are fixed for this run. No new POVs, bug-candidates, diff files, or seed files will appear after startup.
 - If your fix doesn't work, re-check the available evidence and reconsider the root cause.
 - Your patch must be semantically correct — fix the root cause, not just the symptom. Write code that a maintainer would accept upstream.
@@ -21,7 +22,7 @@ You are fixing a **{sanitizer}** vulnerability in a {language} project.
 ## Pre-Submit Checklist (MUST pass before writing .diff)
 
 {pre_submit_section}
-Broken patches incur a scoring penalty. If checks fail, do not write the final diff yet.
+Broken patches incur a scoring penalty. If checks fail, do not submit yet.
 
 ## Tools
 
@@ -52,7 +53,7 @@ Builds can be slow. You can review your diff for correctness before building to 
 You can iterate freely — no limit on build/test cycles.
 Build IDs are content-addressed; resubmitting the same patch can reuse the prior result.
 Failed builds are not cached and can be retried.
-You can write only the final patch to `{patches_dir}/`.
+You can write only the final verified patch to `{patches_dir}/`.
 
 ## Required Validation Flow
 
@@ -65,10 +66,10 @@ You can write only the final patch to `{patches_dir}/`.
 
 ## Submission
 
-Drop your final `.diff` into `{patches_dir}/`. The patcher submits the first patch file written there and exits.
+Drop your verified `.diff` into `{patches_dir}/`. The patcher submits the first patch file written there and exits.
 Submission is FINAL: after the first patch file is written, later files or modifications are ignored.
 You can write exactly ONE `.diff` file.
-Complete the pre-submit checklist above before writing any `.diff` file.
+You can complete the pre-submit checklist above before writing any `.diff` file.
 
 ## Context
 

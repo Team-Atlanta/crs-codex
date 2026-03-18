@@ -2,7 +2,7 @@
 .git/
 
 # Codex local settings
-.claude/
+.codex/
 
 # Python artifacts
 __pycache__/

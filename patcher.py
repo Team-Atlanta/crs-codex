@@ -42,7 +42,7 @@ LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
 LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
 
 # Builder sidecar module name (must match a run_snapshot module in crs.yaml)
-BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder-asan")
+BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder")
 
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
@@ -550,6 +550,15 @@ def main():
         else:
             codex_home.mkdir(parents=True, exist_ok=True)
 
+    # Register agent work directory as a log dir so stdout/stderr and
+    # libCRS response directories are persisted for post-run analysis.
+    agent_work_dir = WORK_DIR / "agent"
+    try:
+        crs.register_log_dir(agent_work_dir)
+        logger.info("Agent work dir registered as log dir at %s", agent_work_dir)
+    except Exception as e:
+        logger.warning("Failed to register agent work log dir: %s", e)
+
     worktree_dir = setup_source()
     if worktree_dir is None:
         logger.error("Failed to set up source directory")
@@ -611,7 +620,7 @@ def main():
         pov_files,
         diff_files,
         seed_files,
-        source_dir,
+        worktree_dir,
         agent,
         bug_candidate_files,
     ):

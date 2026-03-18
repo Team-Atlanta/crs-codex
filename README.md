@@ -99,7 +99,7 @@ crs-codex:
   llm_budget: 10
   additional_env:
     CRS_AGENT: codex
-    CODEX_MODEL: gpt-5.2-codex
+    CODEX_MODEL: gpt-5.4
 
 llm_config:
   # Optional: uncomment if you want OSS-CRS to inject an external LiteLLM endpoint.
@@ -125,9 +125,9 @@ crs-compose up -f crs-compose.yaml
 | Environment variable | Default | Description |
 |---|---|---|
 | `CRS_AGENT` | `codex` | Agent module name (maps to `agents/<name>.py`) |
-| `CODEX_MODEL` | `gpt-5.2-codex` | Model passed to `codex exec --model` |
+| `CODEX_MODEL` | `gpt-5.4` | Model passed to `codex exec --model` |
 | `AGENT_TIMEOUT` | `0` (no limit) | Agent timeout in seconds (0 = run until budget exhausted) |
-| `BUILDER_MODULE` | `inc-builder-asan` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
+| `BUILDER_MODULE` | `inc-builder` | Builder sidecar module name (must match a `run_snapshot` entry in crs.yaml) |
 | `OSS_CRS_SNAPSHOT_IMAGE` | framework-provided | Required snapshot image reference used by patcher startup checks |
 
 Available models:
@@ -194,3 +194,8 @@ The agent has access to three libCRS commands (the `--builder` flag specifies wh
 - `libCRS apply-patch-build <patch.diff> <response_dir> --builder <module>` — build a patch
 - `libCRS run-pov <pov> <response_dir> --harness <h> --build-id <id> --builder <module>` — test against a POV
 - `libCRS run-test <response_dir> --build-id <id> --builder <module>` — run the project's test suite
+
+For transparent diagnostics, always inspect response_dir logs:
+- Build: `build.log`, `build_stdout.log`, `build_stderr.log`
+- POV: `pov_stdout.log`, `pov_stderr.log`
+- Test: `test_stdout.log`, `test_stderr.log`
