@@ -42,6 +42,11 @@ def test_run_invokes_codex_exec_with_correct_flags(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codex, "AGENT_TIMEOUT", 0)
     monkeypatch.setattr(codex, "_snapshot_patch_state", lambda patches_dir: {})
     monkeypatch.setattr(codex, "_changed_patches", lambda before, patches_dir: [])
+    monkeypatch.setattr(
+        codex.subprocess,
+        "run",
+        lambda *args, **kwargs: type("R", (), {"returncode": 0, "stderr": b""})(),
+    )
 
     popen_calls: list[list[str]] = []
 

@@ -354,6 +354,11 @@ def run(
         logger.error("Error running Codex: %s", e)
         return False
 
+    subprocess.run(
+        ["chmod", "-R", "og+rX", str(Path.home() / ".codex")],
+        capture_output=True,
+    )
+
     if proc.returncode != 0:
         logger.warning("Codex failed (rc=%d), see %s", proc.returncode, stderr_log)
 
