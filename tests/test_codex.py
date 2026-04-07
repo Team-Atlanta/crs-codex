@@ -73,7 +73,6 @@ def test_run_invokes_codex_exec_with_correct_flags(monkeypatch, tmp_path: Path) 
         "fuzz_parse_buffer_section",
         patches_dir,
         work_dir,
-        builder="inc-builder",
     )
 
     assert result is False

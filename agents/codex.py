@@ -188,7 +188,6 @@ def run(
     *,
     language: str = "c",
     sanitizer: str = "address",
-    builder: str,
 ) -> bool:
     """Launch Codex in agentic mode to autonomously fix the vulnerability.
 
@@ -216,7 +215,7 @@ def run(
     for pov_path in povs:
         pov_sections.append(
             f"- POV: {_md_inline(str(pov_path))}\n"
-            f"  Reproduce/Test: {_md_inline(f'libCRS run-pov {pov_path} <response_dir> --harness {harness} --build-id <build_id> --builder {builder}')}"
+            f"  Reproduce/Test: {_md_inline(f'libCRS run-pov {pov_path} <response_dir> --harness {harness} --rebuild-id <rebuild_id>')}"
         )
 
     if pov_sections:
@@ -226,7 +225,7 @@ def run(
             pov_list=pov_list,
         )
         workflow_section = templates["workflow_pov"]
-        pre_submit_pov = "- [ ] `pov_exit_code` = 0 for EVERY provided POV variant\n"
+        pre_submit_pov = "- [ ] `retcode` = 0 for EVERY provided POV variant\n"
     else:
         pov_section = ""
         workflow_section = templates["workflow_static"]
@@ -277,7 +276,6 @@ def run(
         bug_candidate_section=bug_candidate_section,
         seed_section=seed_section,
         pre_submit_section=pre_submit_section,
-        builder=builder,
         diff_section=diff_section,
     )
     (source_dir / "AGENTS.md").write_text(agents_md)

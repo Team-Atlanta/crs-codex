@@ -27,24 +27,23 @@ Broken patches incur a scoring penalty. If checks fail, do not submit yet.
 ## Tools
 
 Build a patch:
-  `libCRS apply-patch-build <patch.diff> <response_dir> --builder {builder}`
+  `libCRS apply-patch-build <patch.diff> <response_dir>`
   - Applies the diff to a clean copy of the source and compiles.
-  - `<response_dir>/build_exit_code`: 0 = success (only successful builds produce a usable build_id).
-  - `<response_dir>/build_id`: the build ID (use with run-pov/run-test).
-  - `<response_dir>/build_stdout.log` / `build_stderr.log`: build output.
+  - `<response_dir>/retcode`: 0 = success (only successful builds produce a usable rebuild_id).
+  - `<response_dir>/rebuild_id`: the rebuild ID (use with run-pov).
+  - `<response_dir>/stdout.log` / `stderr.log`: build output.
 
 Test a build against a POV:
-  `libCRS run-pov <pov_path> <response_dir> --harness {harness} --build-id <build_id> --builder {builder}`
-  - `<response_dir>/pov_exit_code`: 0 = no crash (fix works), non-zero = still crashes, 124 = timeout.
-  - `<response_dir>/pov_stdout.log`: stdout from the POV run.
-  - `<response_dir>/pov_stderr.log`: crash details if it still fails.
-  - Build ID `base` is the compiled vulnerable build; with any candidate input, you can run against `base` to check crash behavior before/while patching.
-  - Before final submission, you can confirm behavior on `base` at least once, then confirm no crash on the patched build.
+  `libCRS run-pov <pov_path> <response_dir> --harness {harness} --rebuild-id <rebuild_id>`
+  - `<response_dir>/retcode`: 0 = no crash (fix works), non-zero = still crashes, 124 = timeout.
+  - `<response_dir>/stdout.log`: stdout from the POV run.
+  - `<response_dir>/stderr.log`: crash details if it still fails.
+  - Before final submission, confirm no crash on the patched build.
 
 Run the project's test suite:
-  `libCRS run-test <response_dir> --build-id <build_id> --builder {builder}`
-  - `<response_dir>/test_exit_code`: 0 = tests pass (or skipped if no test.sh), non-zero = failure, 124 = timeout.
-  - `<response_dir>/test_stdout.log` / `test_stderr.log`: test output.
+  `libCRS apply-patch-test <patch.diff> <response_dir>`
+  - `<response_dir>/retcode`: 0 = tests pass (or skipped if no test.sh), non-zero = failure, 124 = timeout.
+  - `<response_dir>/stdout.log` / `stderr.log`: test output.
 
 When a libCRS command fails, you can inspect both stdout and stderr logs before deciding the next step.
 
@@ -58,11 +57,11 @@ You can write only the final verified patch to `{patches_dir}/`.
 ## Required Validation Flow
 
 1. Build candidate patch with `apply-patch-build`.
-2. If `build_exit_code != 0`, inspect logs, revise patch, and rebuild.
-3. Run POV checks with the produced `build_id` (for provided/available candidate inputs).
-4. If any `pov_exit_code != 0`, treat as not fixed; revise patch and rebuild.
-5. Run test suite with the same `build_id`.
-6. Write to `{patches_dir}/` only when `build_exit_code == 0`, POV checks pass, and `test_exit_code == 0` (or tests are explicitly skipped by harness policy).
+2. If `retcode != 0`, inspect logs, revise patch, and rebuild.
+3. Run POV checks with the produced `rebuild_id` (for provided/available candidate inputs).
+4. If any `retcode != 0`, treat as not fixed; revise patch and rebuild.
+5. Run test suite with `apply-patch-test`.
+6. Write to `{patches_dir}/` only when build succeeds, POV checks pass, and tests pass (or tests are explicitly skipped by harness policy).
 
 ## Submission
 

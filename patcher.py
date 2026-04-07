@@ -33,16 +33,12 @@ logger = logging.getLogger("patcher")
 
 # --- Configuration (from oss-crs framework environment variables) ---
 
-SNAPSHOT_IMAGE = os.environ.get("OSS_CRS_SNAPSHOT_IMAGE", "")
 TARGET = os.environ.get("OSS_CRS_TARGET", "")
 HARNESS = os.environ.get("OSS_CRS_TARGET_HARNESS", "")
 LANGUAGE = os.environ.get("FUZZING_LANGUAGE", "c")
 SANITIZER = os.environ.get("SANITIZER", "address")
 LLM_API_URL = os.environ.get("OSS_CRS_LLM_API_URL", "")
 LLM_API_KEY = os.environ.get("OSS_CRS_LLM_API_KEY", "")
-
-# Builder sidecar module name (must match a run_snapshot module in crs.yaml)
-BUILDER_MODULE = os.environ.get("BUILDER_MODULE", "inc-builder")
 
 # Agent selection
 CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
@@ -329,22 +325,6 @@ def setup_source() -> Path | None:
     return worktree_dir
 
 
-def wait_for_builder() -> bool:
-    """Fail-fast DNS check for the builder sidecar.
-
-    Full health polling is handled internally by ``crs.run_pov()`` /
-    ``crs.apply_patch_build()`` (via ``_wait_for_builder_health``), so we
-    only verify DNS resolution here to catch configuration errors early.
-    """
-    try:
-        domain = crs.get_service_domain(BUILDER_MODULE)
-        logger.info("Builder sidecar '%s' resolved to %s", BUILDER_MODULE, domain)
-        return True
-    except RuntimeError as e:
-        logger.error("Failed to resolve builder domain for '%s': %s",
-                      BUILDER_MODULE, e)
-        return False
-
 
 def load_agent(agent_name: str):
     """Dynamically load an agent module from the agents package."""
@@ -421,7 +401,6 @@ def process_inputs(
     optional_kwargs = {
         "language": LANGUAGE,
         "sanitizer": SANITIZER,
-        "builder": BUILDER_MODULE,
     }
     for key, value in optional_kwargs.items():
         if key in run_sig.parameters:
@@ -472,14 +451,9 @@ def process_inputs(
 
 def main():
     logger.info(
-        "Starting patcher: target=%s harness=%s agent=%s snapshot=%s",
-        TARGET, HARNESS, CRS_AGENT, SNAPSHOT_IMAGE or "(none)",
+        "Starting patcher: target=%s harness=%s agent=%s",
+        TARGET, HARNESS, CRS_AGENT,
     )
-
-    if not SNAPSHOT_IMAGE:
-        logger.error("OSS_CRS_SNAPSHOT_IMAGE is not set.")
-        logger.error("Declare snapshot: true in target_build_phase and run_snapshot: true in crs_run_phase (crs.yaml).")
-        sys.exit(1)
 
     global crs
     crs = init_crs_utils()
@@ -611,11 +585,6 @@ def main():
             "No actionable startup inputs found (POV, bug-candidate, diff, or seed). Nothing to do."
         )
         sys.exit(0)
-
-    if not wait_for_builder():
-        logger.warning(
-            "Builder sidecar DNS check failed at startup; continuing and relying on agent-side libCRS retries"
-        )
 
     if process_inputs(
         pov_files,
