@@ -26,6 +26,14 @@ Broken patches incur a scoring penalty. If checks fail, do not submit yet.
 
 ## Tools
 
+Download clean source code:
+  `libCRS download-source <source_type> <dst_dir>`
+  - Downloads a fresh copy of source code to `<dst_dir>`.
+  - Source types:
+    - `fuzz-proj`: the oss-fuzz project directory (build scripts, harness definitions, fuzzer configs).
+    - `target-source`: the upstream repository source code being fuzzed.
+  - Useful for inspecting build scripts or the original (unmodified) source for reference.
+
 Build a patch:
   `libCRS apply-patch-build <patch.diff> <response_dir>`
   - Applies the diff to a clean copy of the source and compiles.
