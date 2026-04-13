@@ -4,19 +4,18 @@ from types import SimpleNamespace
 import patcher
 
 
-def test_setup_source_returns_download_root(
+def test_setup_source_returns_src_dir(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """After the mount-based API change, worktree_dir is always download_root."""
-    work_dir = tmp_path / "work"
-    source_dir = work_dir / "src"
-    (source_dir / ".git").mkdir(parents=True)
+    """setup_source downloads /src build output and returns it as worktree."""
+    src_dir = tmp_path / "src"
+    (src_dir / ".git").mkdir(parents=True)
 
-    monkeypatch.setattr(patcher, "WORK_DIR", work_dir)
+    monkeypatch.setattr(patcher, "SRC_DIR", src_dir)
     monkeypatch.setattr(
         patcher,
         "crs",
-        SimpleNamespace(download_source=lambda source_type, dst: None),
+        SimpleNamespace(download_build_output=lambda name, dst: None),
     )
 
     calls: list[tuple[list[str], Path | None]] = []
@@ -29,7 +28,7 @@ def test_setup_source_returns_download_root(
 
     resolved = patcher.setup_source()
 
-    assert resolved == source_dir.resolve()
+    assert resolved == src_dir.resolve()
     # .git already exists, so git init should NOT be called
     assert ["git", "init"] not in [cmd for cmd, _ in calls]
 
@@ -37,15 +36,14 @@ def test_setup_source_returns_download_root(
 def test_setup_source_initializes_git_when_no_dotgit(
     monkeypatch, tmp_path: Path
 ) -> None:
-    work_dir = tmp_path / "work"
-    source_dir = work_dir / "src"
-    source_dir.mkdir(parents=True)
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True)
 
-    monkeypatch.setattr(patcher, "WORK_DIR", work_dir)
+    monkeypatch.setattr(patcher, "SRC_DIR", src_dir)
     monkeypatch.setattr(
         patcher,
         "crs",
-        SimpleNamespace(download_source=lambda source_type, dst: None),
+        SimpleNamespace(download_build_output=lambda name, dst: None),
     )
 
     calls: list[tuple[list[str], Path | None]] = []
@@ -58,5 +56,5 @@ def test_setup_source_initializes_git_when_no_dotgit(
 
     resolved = patcher.setup_source()
 
-    assert resolved == source_dir.resolve()
-    assert (["git", "init"], source_dir.resolve()) in calls
+    assert resolved == src_dir.resolve()
+    assert (["git", "init"], src_dir.resolve()) in calls

@@ -21,7 +21,7 @@ import threading
 import time
 from pathlib import Path
 
-from libCRS.base import DataType, SourceType
+from libCRS.base import DataType
 from libCRS.cli.main import init_crs_utils
 
 logging.basicConfig(
@@ -47,6 +47,7 @@ CRS_AGENT = os.environ.get("CRS_AGENT", "codex")
 
 # Framework directories
 WORK_DIR = Path("/work")
+SRC_DIR = Path("/src")
 PATCHES_DIR = Path("/patches")
 POV_DIR = WORK_DIR / "povs"
 DIFF_DIR = WORK_DIR / "diffs"
@@ -257,7 +258,7 @@ def _wait_for_stable_first_patch(
 
 
 def setup_source() -> Path | None:
-    """Download source code and locate the project source directory."""
+    """Download build-output /src and prepare it as the working directory."""
     # Ensure safe.directory is set system-wide so git works regardless of
     # file ownership (downloaded source may have different uid).
     safe_dir_proc = subprocess.run(
@@ -274,25 +275,13 @@ def setup_source() -> Path | None:
                 "Failed to configure git safe.directory in both --system and --global scopes"
             )
 
-    download_root = WORK_DIR / "src"
-    download_root.mkdir(parents=True, exist_ok=True)
-
     try:
-        crs.download_source(SourceType.TARGET_SOURCE, download_root)
-        worktree_dir = download_root
-    except Exception as repo_error:
-        logger.error("Failed to download repo source via libCRS: %s", repo_error)
+        crs.download_build_output("src", SRC_DIR)
+    except Exception as e:
+        logger.error("Failed to download /src build output via libCRS: %s", e)
         return None
 
-    worktree_dir = worktree_dir.resolve()
-    download_root = download_root.resolve()
-
-    if worktree_dir != download_root and download_root not in worktree_dir.parents:
-        logger.error(
-            "libCRS returned worktree dir outside downloaded source tree: %s",
-            worktree_dir,
-        )
-        return None
+    worktree_dir = SRC_DIR.resolve()
 
     # Initialize a git repo if the resolved project directory doesn't have one.
     # The agent needs git to generate patches (git add -A && git diff --cached).
