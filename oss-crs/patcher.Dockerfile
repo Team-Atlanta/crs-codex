@@ -11,7 +11,7 @@
 ARG target_base_image
 ARG crs_version
 
-FROM codex-base
+FROM codex-base:cli-0.47.0
 
 # Install libCRS (CLI + Python package)
 COPY --from=libcrs . /libCRS

@@ -1,7 +1,7 @@
 name: crs-codex
 type:
   - bug-fixing
-version: 1.0.0
+version: cli-0.47.0
 docker_registry: ghcr.io/team-atlanta/crs-codex
 
 prepare_phase:
