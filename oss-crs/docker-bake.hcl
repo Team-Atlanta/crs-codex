@@ -18,7 +18,7 @@ variable "VERSION" {
 }
 
 variable "CODEX_CLI_VERSION" {
-  default = "0.104.0"
+  default = "0.121.0"
 }
 
 function "tags" {
